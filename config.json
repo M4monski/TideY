@@ -1,0 +1,22 @@
+{
+  "chassis": {
+    "speed": 0.7,
+    "turn_speed": 0.6,
+    "left_pins": [13, 19],
+    "right_pins": [18, 12]
+  },
+  "arm": {
+    "home_pos": [20, 60, 180, 10, 230, 115],
+    "pause_between_joints": 0.5
+  },
+  "vision": {
+    "model_path": "best.pt",
+    "grab_zone": {
+      "width": 120,
+      "height": 90,
+      "offset_x": -67,
+      "offset_y": -120,
+      "angle": 20
+    }
+  }
+}
