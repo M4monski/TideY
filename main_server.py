@@ -110,6 +110,31 @@ def manual_arm_move():
         
     return jsonify({"status": "error", "message": "Invalid data"}), 400
 
+@app.route('/cmd/chassis/sweep', methods=['POST'])
+def control_chassis_sweep():
+    data = request.json
+    grid_size = float(data.get('distance', 0))
+    
+    if grid_size > 0:
+        # Run the long sweep sequence in a background thread
+        threading.Thread(target=robot_base.sweep_area, args=(grid_size,)).start()
+        return jsonify({"status": "sweeping", "grid_size": grid_size})
+        
+    return jsonify({"status": "error", "message": "Invalid grid size"}), 400
+
+@app.route('/cmd/chassis/distance', methods=['POST'])
+def control_chassis_distance():
+    data = request.json
+    distance = float(data.get('distance', 0))
+    direction = data.get('direction', 'w') # 'w' for forward, 's' for backward
+    
+    if distance > 0:
+        # Run in a background thread to prevent the video stream from freezing
+        threading.Thread(target=robot_base.move_set_distance, args=(distance, direction)).start()
+        return jsonify({"status": "moving", "distance": distance, "direction": direction})
+        
+    return jsonify({"status": "error", "message": "Invalid distance"}), 400
+
 if __name__ == '__main__':
     try:
         print("\n[SYSTEM] Server starting on port 5000...")

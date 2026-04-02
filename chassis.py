@@ -1,9 +1,15 @@
+import time
+import math
+import threading  # <--- Added for continuous background tracking
+import board
+import busio
+import adafruit_mpu6050
 from gpiozero import Motor
 
 class Chassis:
     def __init__(self, config):
         """
-        Initializes the motor controller using settings from config.json
+        Initializes the motor controller and the MPU6050 sensor.
         """
         left_pins = config.get("left_pins", [13, 19])
         right_pins = config.get("right_pins", [18, 12])
@@ -11,32 +17,267 @@ class Chassis:
         self.motor_left = Motor(forward=left_pins[0], backward=left_pins[1])
         self.motor_right = Motor(forward=right_pins[0], backward=right_pins[1])
         
-        self.speed = config.get("speed", 0.7)
+        self.base_speed = config.get("speed", 0.5)
         self.turn_speed = config.get("turn_speed", 0.6)
+        
+        # ---------------------------------------------------------
+        # MOTOR TRIM CALIBRATION
+        # Drifting Right? Lower the left_trim (e.g., 0.92)
+        # Drifting Left? Lower the right_trim (e.g., 0.92)
+        # ---------------------------------------------------------
+        self.left_trim = 0.91  # Slows the left motor down to 92% of its normal speed
+        self.right_trim = 1.0  # Keeps the right motor at 100% of its normal speed
+        
+        self.speed_left = self.base_speed * self.left_trim
+        self.speed_right = self.base_speed * self.right_trim
+        
+        # --- ABSOLUTE TRACKING SYSTEM ---
+        self.global_yaw = 0.0  # Keeps track of absolute heading forever
         
         print("[CHASSIS] Motors Initialized.")
 
+        # Initialize MPU6050 on the shared I2C bus
+        try:
+            self.i2c = busio.I2C(board.SCL, board.SDA)
+            self.mpu = adafruit_mpu6050.MPU6050(self.i2c)
+            self.has_mpu = True
+            print("[CHASSIS] MPU6050 IMU Initialized successfully.")
+            
+            # --- GYRO CALIBRATION ---
+            print("[CHASSIS] >>> STARTING CALIBRATION. KEEP ROBOT FLAT AND STILL...")
+            gyro_samples = []
+            for _ in range(200):
+                gyro_samples.append(self.mpu.gyro[2])
+                time.sleep(0.005)
+            
+            self.gyro_z_bias = sum(gyro_samples) / len(gyro_samples)
+            print(f"[CHASSIS] >>> CALIBRATION COMPLETE. Z-Bias: {self.gyro_z_bias:.4f} rad/s")
+            
+            # Start the background thread to track heading continuously
+            threading.Thread(target=self._imu_tracker, daemon=True).start()
+            
+        except Exception as e:
+            print(f"[CHASSIS] MPU6050 init failed: {e}. Will fallback to time-based turning.")
+            self.has_mpu = False
+
+    def _imu_tracker(self):
+        """
+        Runs continuously in the background. Tracks all rotations (turns, drifts).
+        Noise filter lowered back to 0.5 so we don't miss slow sand drift!
+        """
+        last_time = time.time()
+        while getattr(self, 'has_mpu', False):
+            current_time = time.time()
+            dt = current_time - last_time
+            last_time = current_time
+            
+            try:
+                raw_z_rads = self.mpu.gyro[2]
+                corrected_z_rads = raw_z_rads - self.gyro_z_bias
+                z_degs = math.degrees(corrected_z_rads)
+                
+                # Lowered from 2.5 back to 0.5. We NEED to track slow drifting!
+                if abs(z_degs) > 0.5:
+                    self.global_yaw += (z_degs * dt)
+                    
+            except Exception:
+                pass
+                
+            time.sleep(0.01)  # Run at 100Hz
+
+    # --- BASIC MOVEMENT ---
     def move_forward(self):
-        print("[CHASSIS] Moving Forward")
-        self.motor_left.forward(self.speed)
-        self.motor_right.backward(self.speed)
+        self.motor_left.forward(self.speed_left)
+        self.motor_right.backward(self.speed_right)
 
     def move_backward(self):
-        print("[CHASSIS] Moving Backward")
-        self.motor_left.backward(self.speed)
-        self.motor_right.forward(self.speed)
+        self.motor_left.backward(self.speed_left)
+        self.motor_right.forward(self.speed_right)
 
     def spin_left(self):
-        print("[CHASSIS] Spinning Left")
         self.motor_left.backward(self.turn_speed)
         self.motor_right.backward(self.turn_speed)
 
     def spin_right(self):
-        print("[CHASSIS] Spinning Right")
         self.motor_left.forward(self.turn_speed)
         self.motor_right.forward(self.turn_speed)
 
     def stop(self):
-        print("[CHASSIS] Stopped")
         self.motor_left.stop()
         self.motor_right.stop()
+
+    # --- SENSOR SAFETY ---
+    def is_tilted_dangerously(self):
+        if not self.has_mpu: 
+            return False
+            
+        accel_x, accel_y, accel_z = self.mpu.acceleration
+        pitch = math.degrees(math.atan2(accel_x, math.sqrt(accel_y**2 + accel_z**2)))
+        roll = math.degrees(math.atan2(accel_y, math.sqrt(accel_x**2 + accel_z**2)))
+        
+        if abs(pitch) > 35 or abs(roll) > 35:
+            return True
+        return False
+
+    # --- ADVANCED MOVEMENT ---
+    def move_set_distance(self, distance_cm, direction='w'):
+        """
+        Actively drives a set distance while using the Gyroscope to lock onto 
+        its current heading. Includes Sand-Safe torque clamping!
+        """
+        travel_time = distance_cm * (6.1 / 170.0)
+        
+        # We now lock onto EXACTLY what the sensor reads right now,
+        # ignoring the mathematical grid to respect your physical turn cutoffs!
+        target_heading = self.global_yaw
+            
+        print(f"[CHASSIS] Driving {distance_cm}cm. Locking heading to {target_heading:.1f}°")
+        
+        if direction == 's':
+            self.move_backward()
+            return # Skip active correction for simple reversing
+        
+        start_time = time.time()
+        while (time.time() - start_time) < travel_time:
+            if self.is_tilted_dangerously():
+                self.stop()
+                print("\n[CHASSIS] 🚨 EMERGENCY STOP: Excessive tilt detected! 🚨\n")
+                return 
+                
+            error = target_heading - self.global_yaw
+            
+            # A much gentler correction multiplier so it doesn't violently jerk
+            correction_strength = 0.015 
+            correction = error * correction_strength
+            
+            raw_l = self.speed_left - correction
+            raw_r = self.speed_right + correction
+            
+            # ---------------------------------------------------------
+            # SAND SAFETY CLAMP: 
+            # Never drop below 0.35 power or the wheels will stall in the sand!
+            # ---------------------------------------------------------
+            min_power = 0.35
+            l_speed = max(min_power, min(1.0, raw_l))
+            r_speed = max(min_power, min(1.0, raw_r))
+            
+            self.motor_left.forward(l_speed)
+            self.motor_right.backward(r_speed)
+            
+            time.sleep(0.02) 
+            
+        self.stop()
+
+    def turn_to_absolute_heading(self, target_heading, direction):
+        """
+        Spins until the background thread's global_yaw matches the target_heading.
+        Uses ASYMMETRICAL cutoffs to fix hardware momentum/sensor bias.
+        """
+        if not getattr(self, 'has_mpu', False):
+            if direction == 'r': self.spin_right()
+            else: self.spin_left()
+            time.sleep(0.8)
+            self.stop()
+            return
+
+        print(f"\n[CHASSIS] --- SNAPPING TO GRID HEADING: {target_heading:.2f}° ---")
+        print(f"[CHASSIS] Starting Yaw: {self.global_yaw:.2f}°")
+        
+        # ---------------------------------------------------------
+        # ASYMMETRICAL CUTOFF TUNING
+        # Tweak these two numbers until both sides are perfectly 90!
+        # ---------------------------------------------------------
+        right_cutoff = 12.0 # Positive cuts power EARLY (stops overturning) cemeny 5
+        left_cutoff = -20.5  # Negative pushes PAST target (stops underturning) cemeny -7.8
+        
+        start_time = time.time()
+            
+        if direction == 'r':
+            self.spin_right()
+            # Spinning right makes yaw go negative
+            while self.global_yaw > (target_heading + right_cutoff):
+                time.sleep(0.01)
+                if time.time() - start_time > 5.0: break
+        else:
+            self.spin_left()
+            # Spinning left makes yaw go positive
+            while self.global_yaw < (target_heading - left_cutoff):
+                time.sleep(0.01)
+                if time.time() - start_time > 5.0: break
+            
+        self.stop()
+        print(f"[CHASSIS] Turn complete. Final Global Yaw: {self.global_yaw:.2f}°")
+        print(f"[CHASSIS] ----------------------------------------\n")
+
+    def turn_90(self, direction='r'):
+        """
+        Legacy support: turns 90 degrees relative to whatever direction it's facing right now.
+        """
+        if direction == 'r':
+            target = self.global_yaw - 90.0
+        else:
+            target = self.global_yaw + 90.0
+        self.turn_to_absolute_heading(target, direction)
+
+    def sweep_area(self, grid_size_cm):
+        """
+        Executes a Boustrophedon sweep. 
+        Calls the sand-safe move_set_distance without forcing grid math!
+        """
+        lane_width = 50.0
+        rest_time = 1.0  
+        
+        lanes = int(grid_size_cm / lane_width)
+        if lanes < 1: 
+            lanes = 1
+
+        print(f"\n[CHASSIS] --- STARTING SWEEP ---")
+        print(f"[CHASSIS] Grid: {grid_size_cm}x{grid_size_cm}cm | Passes needed: {lanes}")
+        
+        self.global_yaw = 0.0
+        grid_target = 0.0 
+        
+        turn_direction = 1 
+        
+        for i in range(lanes):
+            print(f"\n[CHASSIS] --- Sweeping pass {i + 1} of {lanes} ---")
+            
+            # Just drive forward. It will automatically lock onto its current heading.
+            self.move_set_distance(grid_size_cm, 'w')
+            
+            if i == lanes - 1:
+                break
+                
+            print(f"[CHASSIS] Settling momentum for {rest_time}s... (Live Yaw: {self.global_yaw:.2f}°)")
+            time.sleep(rest_time)
+                
+            if turn_direction == 1:
+                grid_target -= 90.0  
+                self.turn_to_absolute_heading(grid_target, 'r')
+                print(f"[CHASSIS] Rest... (Live Yaw: {self.global_yaw:.2f}°)")
+                time.sleep(rest_time)
+                
+                self.move_set_distance(lane_width, 'w')
+                print(f"[CHASSIS] Rest... (Live Yaw: {self.global_yaw:.2f}°)")
+                time.sleep(rest_time)
+                
+                grid_target -= 90.0  
+                self.turn_to_absolute_heading(grid_target, 'r')
+            else:
+                grid_target += 90.0  
+                self.turn_to_absolute_heading(grid_target, 'l')
+                print(f"[CHASSIS] Rest... (Live Yaw: {self.global_yaw:.2f}°)")
+                time.sleep(rest_time)
+                
+                self.move_set_distance(lane_width, 'w')
+                print(f"[CHASSIS] Rest... (Live Yaw: {self.global_yaw:.2f}°)")
+                time.sleep(rest_time)
+                
+                grid_target += 90.0  
+                self.turn_to_absolute_heading(grid_target, 'l')
+                
+            print(f"[CHASSIS] Settling momentum before next lane... (Live Yaw: {self.global_yaw:.2f}°)")
+            time.sleep(rest_time)
+            turn_direction *= -1
+            
+        print("[CHASSIS] --- SWEEP COMPLETE ---\n")

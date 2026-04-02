@@ -7,21 +7,19 @@
       content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no"
     />
     <style>
-      /* Lock layout to screen size to prevent scrolling */
       * {
         box-sizing: border-box;
       }
       body {
         margin: 0;
         padding: 0;
-        height: 100vh;
+        min-height: 100vh; /* Changed from fixed height to allow expansion */
         display: flex;
         flex-direction: column;
         background-color: #121212;
         color: white;
         font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-        overflow: hidden;
-        overscroll-behavior: contain;
+        /* Scroll-locking commands removed here! */
       }
 
       /* TOP 70% - LIVE VIDEO FEED */
@@ -39,7 +37,7 @@
         width: 100%;
         height: 100%;
         object-fit: contain;
-      } /* 'contain' ensures YOLO boxes aren't cut off */
+      } 
       .status-overlay {
         position: absolute;
         top: 15px;
@@ -54,10 +52,11 @@
 
       /* BOTTOM 30% - CONTROL PANELS */
       .control-section {
-        height: 30vh;
+        min-height: 30vh; /* Changed to min-height so it can expand if needed */
         width: 100%;
         display: flex;
         flex-direction: row;
+        flex-wrap: wrap; /* Added so panels stack neatly on smaller screens if you scroll */
         padding: 10px;
         gap: 10px;
         background-color: #1a1a1a;
@@ -65,9 +64,10 @@
 
       .panel {
         flex: 1;
+        min-width: 300px; /* Ensures panels don't get too squished before wrapping */
         background-color: #242424;
         border-radius: 8px;
-        padding: 10px;
+        padding: 20px 10px 10px 10px;
         display: flex;
         flex-direction: column;
         align-items: center;
@@ -144,6 +144,7 @@
       .snapshot-container {
         width: 90%;
         max-width: 250px;
+        min-height: 120px;
         flex-grow: 1;
         border: 2px dashed #444;
         border-radius: 6px;
@@ -152,6 +153,7 @@
         align-items: center;
         overflow: hidden;
         background-color: #111;
+        margin-top: 5px;
       }
       .snapshot-container img {
         width: 100%;
@@ -193,6 +195,7 @@
         justify-content: center;
         box-shadow: 0 4px 0 rgba(0, 0, 0, 0.3);
         transition: all 0.1s;
+        padding: 10px 5px;
       }
       .arm-btn:active {
         box-shadow: 0 0 0 transparent;
@@ -209,6 +212,42 @@
         background-color: #576574;
         color: white;
       }
+
+      /* PRECISE DISTANCE CONTROLS */
+      .dist-input {
+        width: 100%;
+        padding: 8px;
+        margin-top: 15px;
+        background-color: #111;
+        color: #00d2d3;
+        border: 1px solid #444;
+        border-radius: 4px;
+        text-align: center;
+        font-family: monospace;
+        font-size: 14px;
+      }
+      .dist-btn-group {
+        display: flex;
+        gap: 6px;
+        margin-top: 8px;
+        width: 100%;
+      }
+      .dist-btn {
+        flex: 1;
+        padding: 10px;
+        background-color: #ff9f43;
+        color: #111;
+        font-weight: bold;
+        border: none;
+        border-radius: 4px;
+        cursor: pointer;
+        box-shadow: 0 4px 0 #cd7d32;
+        transition: all 0.1s;
+      }
+      .dist-btn:active {
+        box-shadow: 0 0 0 transparent;
+        transform: translateY(4px);
+      }
     </style>
   </head>
   <body>
@@ -220,6 +259,7 @@
     <div class="control-section">
       <div class="panel">
         <h4 class="panel-title">CHASSIS CONTROL</h4>
+        
         <div class="d-pad">
           <div class="empty"></div>
           <button
@@ -260,6 +300,15 @@
           >
             RGT
           </button>
+        </div>
+
+        <hr style="border-color: #333; width: 100%; margin: 15px 0 5px 0; border-style: dashed;">
+        <div style="font-size: 10px; color: #777; letter-spacing: 1px;">AUTONOMOUS DISTANCE</div>
+        <input type="number" id="distanceInput" class="dist-input" placeholder="Distance (cm)">
+        <div class="dist-btn-group">
+            <button class="dist-btn" onclick="sendDistanceMove('w')">FWD</button>
+            <button class="dist-btn" onclick="sendDistanceMove('s')">REV</button>
+            <button class="dist-btn" style="background-color: #00d2d3; color: #111;" onclick="sendSweep()">SWEEP</button>
         </div>
       </div>
 
@@ -412,6 +461,7 @@
             btn.disabled = false;
           });
       }
+      
       // Fetch and display live angles from the server
       function fetchAngles() {
         fetch('/api/arm/angles')
@@ -446,6 +496,45 @@
         // Clear the input and fetch updated angles shortly after moving
         document.getElementById('angleInput').value = '';
         setTimeout(fetchAngles, 1000);
+      }
+
+      // Precise Distance Logic
+      function sendDistanceMove(direction) {
+        const distInput = document.getElementById('distanceInput').value;
+        const distance = parseFloat(distInput);
+
+        if (isNaN(distance) || distance <= 0) {
+          alert('Please enter a valid distance in centimeters (e.g., 50).');
+          return;
+        }
+
+        fetch('/cmd/chassis/distance', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ distance: distance, direction: direction }),
+        }).catch((err) => console.error('Error sending distance move:', err));
+        
+        // Optional: clear the input after sending
+        document.getElementById('distanceInput').value = '';
+      } 
+
+      // Send the sweep sequence command
+      function sendSweep() {
+        const distInput = document.getElementById('distanceInput').value;
+        const grid_size = parseFloat(distInput);
+
+        if (isNaN(grid_size) || grid_size < 20) {
+          alert('Please enter a valid grid size (minimum 20cm).');
+          return;
+        }
+
+        fetch('/cmd/chassis/sweep', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ distance: grid_size }),
+        }).catch((err) => console.error('Error sending sweep move:', err));
+        
+        document.getElementById('distanceInput').value = '';
       }
     </script>
   </body>
