@@ -1,131 +1,452 @@
-<!DOCTYPE html>
+<!doctype html>
 <html>
-<head>
+  <head>
     <title>TIDEY Command Center</title>
-    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no"
+    />
     <style>
-        /* Lock layout to screen size to prevent scrolling */
-        * { box-sizing: border-box; }
-        body { margin: 0; padding: 0; height: 100vh; display: flex; flex-direction: column; background-color: #121212; color: white; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; overflow: hidden; overscroll-behavior: contain; }
-        
-        /* TOP 70% - LIVE VIDEO FEED */
-        .video-section { height: 70vh; width: 100%; background-color: #000; border-bottom: 3px solid #00d2d3; display: flex; justify-content: center; align-items: center; position: relative; }
-        .video-section img { width: 100%; height: 100%; object-fit: contain; } /* 'contain' ensures YOLO boxes aren't cut off */
-        .status-overlay { position: absolute; top: 15px; left: 20px; color: #00d2d3; font-weight: 800; font-size: 18px; text-transform: uppercase; letter-spacing: 2px; text-shadow: 2px 2px 4px #000; }
+      /* Lock layout to screen size to prevent scrolling */
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        padding: 0;
+        height: 100vh;
+        display: flex;
+        flex-direction: column;
+        background-color: #121212;
+        color: white;
+        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        overflow: hidden;
+        overscroll-behavior: contain;
+      }
 
-        /* BOTTOM 30% - CONTROL PANELS */
-        .control-section { height: 30vh; width: 100%; display: flex; flex-direction: row; padding: 10px; gap: 10px; background-color: #1a1a1a; }
-        
-        .panel { flex: 1; background-color: #242424; border-radius: 8px; padding: 10px; display: flex; flex-direction: column; align-items: center; justify-content: center; border: 1px solid #333; position: relative; }
-        .panel-title { position: absolute; top: 8px; left: 10px; color: #777; font-size: 11px; text-transform: uppercase; letter-spacing: 1px; font-weight: bold; margin: 0; }
+      /* TOP 70% - LIVE VIDEO FEED */
+      .video-section {
+        height: 70vh;
+        width: 100%;
+        background-color: #000;
+        border-bottom: 3px solid #00d2d3;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        position: relative;
+      }
+      .video-section img {
+        width: 100%;
+        height: 100%;
+        object-fit: contain;
+      } /* 'contain' ensures YOLO boxes aren't cut off */
+      .status-overlay {
+        position: absolute;
+        top: 15px;
+        left: 20px;
+        color: #00d2d3;
+        font-weight: 800;
+        font-size: 18px;
+        text-transform: uppercase;
+        letter-spacing: 2px;
+        text-shadow: 2px 2px 4px #000;
+      }
 
-        /* LOWER LEFT: DRIVE CONTROLS (Hold to Move) */
-        .d-pad { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; width: 100%; max-width: 220px; margin-top: 15px; }
-        .d-pad button { padding: 15px 0; font-size: 16px; font-weight: bold; background-color: #00d2d3; color: #111; border: none; border-radius: 6px; cursor: pointer; user-select: none; touch-action: manipulation; box-shadow: 0 4px 0 #009b9b; transition: all 0.1s; }
-        .d-pad button:active { box-shadow: 0 0 0 #009b9b; transform: translateY(4px); background-color: #01a3a4; }
-        .empty { visibility: hidden; }
+      /* BOTTOM 30% - CONTROL PANELS */
+      .control-section {
+        height: 30vh;
+        width: 100%;
+        display: flex;
+        flex-direction: row;
+        padding: 10px;
+        gap: 10px;
+        background-color: #1a1a1a;
+      }
 
-        /* LOWER CENTER: CAMERA & SNAPSHOT */
-        .btn-cam { width: 90%; max-width: 250px; font-size: 13px; font-weight: bold; padding: 12px; border-radius: 6px; background-color: #ff4757; color: white; border: none; cursor: pointer; touch-action: manipulation; margin-top: 15px; margin-bottom: 10px; box-shadow: 0 4px 0 #d03a47; transition: all 0.1s; }
-        .btn-cam:active { box-shadow: 0 0 0 #d03a47; transform: translateY(4px); }
-        .snapshot-container { width: 90%; max-width: 250px; flex-grow: 1; border: 2px dashed #444; border-radius: 6px; display: flex; justify-content: center; align-items: center; overflow: hidden; background-color: #111; }
-        .snapshot-container img { width: 100%; height: 100%; object-fit: cover; display: none; }
-        .snapshot-text { color: #555; font-size: 11px; text-transform: uppercase; }
+      .panel {
+        flex: 1;
+        background-color: #242424;
+        border-radius: 8px;
+        padding: 10px;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        border: 1px solid #333;
+        position: relative;
+      }
+      .panel-title {
+        position: absolute;
+        top: 8px;
+        left: 10px;
+        color: #777;
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+        font-weight: bold;
+        margin: 0;
+      }
 
-        /* LOWER RIGHT: ARM COMMANDS */
-        .arm-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 6px; width: 100%; margin-top: 15px; height: 100%; }
-        .full-width { grid-column: span 3; }
-        .half-width { grid-column: span 2; }
-        .arm-btn { font-size: 12px; font-weight: bold; border-radius: 6px; border: none; cursor: pointer; touch-action: manipulation; color: #111; display: flex; align-items: center; justify-content: center; box-shadow: 0 4px 0 rgba(0,0,0,0.3); transition: all 0.1s; }
-        .arm-btn:active { box-shadow: 0 0 0 transparent; transform: translateY(4px); }
-        
-        .bg-yellow { background-color: #feca57; }
-        .bg-blue { background-color: #48dbfb; }
-        .bg-grey { background-color: #576574; color: white; }
+      /* LOWER LEFT: DRIVE CONTROLS (Hold to Move) */
+      .d-pad {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 6px;
+        width: 100%;
+        max-width: 220px;
+        margin-top: 15px;
+      }
+      .d-pad button {
+        padding: 15px 0;
+        font-size: 16px;
+        font-weight: bold;
+        background-color: #00d2d3;
+        color: #111;
+        border: none;
+        border-radius: 6px;
+        cursor: pointer;
+        user-select: none;
+        touch-action: manipulation;
+        box-shadow: 0 4px 0 #009b9b;
+        transition: all 0.1s;
+      }
+      .d-pad button:active {
+        box-shadow: 0 0 0 #009b9b;
+        transform: translateY(4px);
+        background-color: #01a3a4;
+      }
+      .empty {
+        visibility: hidden;
+      }
+
+      /* LOWER CENTER: CAMERA & SNAPSHOT */
+      .btn-cam {
+        width: 90%;
+        max-width: 250px;
+        font-size: 13px;
+        font-weight: bold;
+        padding: 12px;
+        border-radius: 6px;
+        background-color: #ff4757;
+        color: white;
+        border: none;
+        cursor: pointer;
+        touch-action: manipulation;
+        margin-top: 15px;
+        margin-bottom: 10px;
+        box-shadow: 0 4px 0 #d03a47;
+        transition: all 0.1s;
+      }
+      .btn-cam:active {
+        box-shadow: 0 0 0 #d03a47;
+        transform: translateY(4px);
+      }
+      .snapshot-container {
+        width: 90%;
+        max-width: 250px;
+        flex-grow: 1;
+        border: 2px dashed #444;
+        border-radius: 6px;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        overflow: hidden;
+        background-color: #111;
+      }
+      .snapshot-container img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        display: none;
+      }
+      .snapshot-text {
+        color: #555;
+        font-size: 11px;
+        text-transform: uppercase;
+      }
+
+      /* LOWER RIGHT: ARM COMMANDS */
+      .arm-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr 1fr;
+        gap: 6px;
+        width: 100%;
+        margin-top: 15px;
+        height: 100%;
+      }
+      .full-width {
+        grid-column: span 3;
+      }
+      .half-width {
+        grid-column: span 2;
+      }
+      .arm-btn {
+        font-size: 12px;
+        font-weight: bold;
+        border-radius: 6px;
+        border: none;
+        cursor: pointer;
+        touch-action: manipulation;
+        color: #111;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        box-shadow: 0 4px 0 rgba(0, 0, 0, 0.3);
+        transition: all 0.1s;
+      }
+      .arm-btn:active {
+        box-shadow: 0 0 0 transparent;
+        transform: translateY(4px);
+      }
+
+      .bg-yellow {
+        background-color: #feca57;
+      }
+      .bg-blue {
+        background-color: #48dbfb;
+      }
+      .bg-grey {
+        background-color: #576574;
+        color: white;
+      }
     </style>
-</head>
-<body>
-
+  </head>
+  <body>
     <div class="video-section">
-        <div class="status-overlay">🔴 LIVE: TIDEY AI VISION</div>
-        <img id="video_feed" src="/video_feed" alt="Live Camera Feed">
+      <div class="status-overlay">🔴 LIVE: TIDEY AI VISION</div>
+      <img id="video_feed" src="/video_feed" alt="Live Camera Feed" />
     </div>
 
     <div class="control-section">
-        
-        <div class="panel">
-            <h4 class="panel-title">CHASSIS CONTROL</h4>
-            <div class="d-pad">
-                <div class="empty"></div>
-                <button onmousedown="startMove('w')" onmouseup="stopMove()" onmouseleave="stopMove()" ontouchstart="startMove('w'); event.preventDefault()" ontouchend="stopMove(); event.preventDefault()">FWD</button>
-                <div class="empty"></div>
-                
-                <button onmousedown="startMove('a')" onmouseup="stopMove()" onmouseleave="stopMove()" ontouchstart="startMove('a'); event.preventDefault()" ontouchend="stopMove(); event.preventDefault()">LFT</button>
-                <button onmousedown="startMove('s')" onmouseup="stopMove()" onmouseleave="stopMove()" ontouchstart="startMove('s'); event.preventDefault()" ontouchend="stopMove(); event.preventDefault()">REV</button>
-                <button onmousedown="startMove('d')" onmouseup="stopMove()" onmouseleave="stopMove()" ontouchstart="startMove('d'); event.preventDefault()" ontouchend="stopMove(); event.preventDefault()">RGT</button>
-            </div>
+      <div class="panel">
+        <h4 class="panel-title">CHASSIS CONTROL</h4>
+        <div class="d-pad">
+          <div class="empty"></div>
+          <button
+            onmousedown="startMove('w')"
+            onmouseup="stopMove()"
+            onmouseleave="stopMove()"
+            ontouchstart="startMove('w'); event.preventDefault()"
+            ontouchend="stopMove(); event.preventDefault()"
+          >
+            FWD
+          </button>
+          <div class="empty"></div>
+
+          <button
+            onmousedown="startMove('a')"
+            onmouseup="stopMove()"
+            onmouseleave="stopMove()"
+            ontouchstart="startMove('a'); event.preventDefault()"
+            ontouchend="stopMove(); event.preventDefault()"
+          >
+            LFT
+          </button>
+          <button
+            onmousedown="startMove('s')"
+            onmouseup="stopMove()"
+            onmouseleave="stopMove()"
+            ontouchstart="startMove('s'); event.preventDefault()"
+            ontouchend="stopMove(); event.preventDefault()"
+          >
+            REV
+          </button>
+          <button
+            onmousedown="startMove('d')"
+            onmouseup="stopMove()"
+            onmouseleave="stopMove()"
+            ontouchstart="startMove('d'); event.preventDefault()"
+            ontouchend="stopMove(); event.preventDefault()"
+          >
+            RGT
+          </button>
+        </div>
+      </div>
+
+      <div class="panel">
+        <h4 class="panel-title">TARGET ACQUISITION</h4>
+        <button id="captureBtn" class="btn-cam" onclick="takePhoto()">
+          📸 SNAP HIGH-RES TARGET
+        </button>
+        <div class="snapshot-container">
+          <span id="snapshotText" class="snapshot-text">Awaiting Capture</span>
+          <img id="lastPhoto" src="" alt="Captured Image" />
+        </div>
+      </div>
+
+      <div class="panel">
+        <h4 class="panel-title">ROBOTIC ARM SEQUENCE</h4>
+        <div class="arm-grid">
+          <button
+            class="arm-btn bg-yellow half-width"
+            onclick="sendCommand('arm', 'pickup')"
+          >
+            🔽 EXECUTE PICKUP
+          </button>
+          <button class="arm-btn bg-grey" onclick="sendCommand('arm', 'home')">
+            🏠 HOME
+          </button>
+
+          <button
+            class="arm-btn bg-blue"
+            onclick="sendCommand('arm', 'drop_l')"
+          >
+            👈 DROP L
+          </button>
+          <button
+            class="arm-btn bg-blue"
+            onclick="sendCommand('arm', 'drop_c')"
+          >
+            🔽 DROP C
+          </button>
+          <button
+            class="arm-btn bg-blue"
+            onclick="sendCommand('arm', 'drop_r')"
+          >
+            DROP R 👉
+          </button>
+        </div>
+      </div>
+
+      <div class="panel">
+        <h4 class="panel-title">MANUAL ARM</h4>
+        <div
+          id="angleDisplay"
+          style="
+            font-size: 11px;
+            color: #00d2d3;
+            margin-top: 20px;
+            margin-bottom: 10px;
+            font-family: monospace;
+            text-align: center;
+          "
+        >
+          Loading angles...
         </div>
 
-        <div class="panel">
-            <h4 class="panel-title">TARGET ACQUISITION</h4>
-            <button id="captureBtn" class="btn-cam" onclick="takePhoto()">📸 SNAP HIGH-RES TARGET</button>
-            <div class="snapshot-container">
-                <span id="snapshotText" class="snapshot-text">Awaiting Capture</span>
-                <img id="lastPhoto" src="" alt="Captured Image">
-            </div>
-        </div>
+        <select
+          id="jointSelect"
+          style="
+            width: 90%;
+            padding: 8px;
+            margin-bottom: 8px;
+            background-color: #111;
+            color: white;
+            border: 1px solid #444;
+            border-radius: 4px;
+          "
+        >
+          <option value="base">Base</option>
+          <option value="shoulder">Shoulder</option>
+          <option value="elbow">Elbow</option>
+          <option value="wpitch">Wrist Pitch</option>
+          <option value="wroll">Wrist Roll</option>
+          <option value="gripper">Gripper</option>
+        </select>
 
-        <div class="panel">
-            <h4 class="panel-title">ROBOTIC ARM SEQUENCE</h4>
-            <div class="arm-grid">
-                <button class="arm-btn bg-yellow half-width" onclick="sendCommand('arm', 'pickup')">🔽 EXECUTE PICKUP</button>
-                <button class="arm-btn bg-grey" onclick="sendCommand('arm', 'home')">🏠 HOME</button>
-                
-                <button class="arm-btn bg-blue" onclick="sendCommand('arm', 'drop_l')">👈 DROP L</button>
-                <button class="arm-btn bg-blue" onclick="sendCommand('arm', 'drop_c')">🔽 DROP C</button>
-                <button class="arm-btn bg-blue" onclick="sendCommand('arm', 'drop_r')">DROP R 👉</button>
-            </div>
-        </div>
+        <input
+          type="number"
+          id="angleInput"
+          placeholder="Angle (0-270)"
+          style="
+            width: 90%;
+            padding: 8px;
+            margin-bottom: 8px;
+            background-color: #111;
+            color: white;
+            border: 1px solid #444;
+            border-radius: 4px;
+          "
+        />
 
+        <button
+          class="arm-btn bg-yellow"
+          style="width: 90%; padding: 10px"
+          onclick="sendManualMove()"
+        >
+          MOVE JOINT
+        </button>
+      </div>
     </div>
 
     <script>
-        // Send hardware commands to the Flask Server
-        function sendCommand(subsystem, action) {
-            fetch(`/cmd/${subsystem}/${action}`, { method: 'POST' })
-            .catch(err => console.error(`Error sending command to ${subsystem}:`, err));
+      // Send hardware commands to the Flask Server
+      function sendCommand(subsystem, action) {
+        fetch(`/cmd/${subsystem}/${action}`, { method: 'POST' }).catch((err) =>
+          console.error(`Error sending command to ${subsystem}:`, err),
+        );
+      }
+
+      // Chassis Movement Logic
+      function startMove(dir) {
+        sendCommand('chassis', dir);
+      }
+      function stopMove() {
+        sendCommand('chassis', 'x');
+      }
+
+      // Snap high-res photo logic
+      function takePhoto() {
+        const btn = document.getElementById('captureBtn');
+        const img = document.getElementById('lastPhoto');
+        const text = document.getElementById('snapshotText');
+
+        btn.innerHTML = '⏳ Processing...';
+        btn.disabled = true;
+
+        fetch('/capture', { method: 'POST' })
+          .then((response) => response.json())
+          .then((data) => {
+            if (data.success) {
+              img.src =
+                '/images/' + data.filename + '?t=' + new Date().getTime();
+              img.style.display = 'block';
+              text.style.display = 'none';
+              btn.innerHTML = '📸 SNAP HIGH-RES TARGET';
+              btn.disabled = false;
+            }
+          })
+          .catch((err) => {
+            alert('Error taking photo!');
+            btn.innerHTML = '📸 SNAP HIGH-RES TARGET';
+            btn.disabled = false;
+          });
+      }
+      // Fetch and display live angles from the server
+      function fetchAngles() {
+        fetch('/api/arm/angles')
+          .then((response) => response.json())
+          .then((data) => {
+            document.getElementById('angleDisplay').innerText =
+              `B:${data.base}° S:${data.shoulder}° E:${data.elbow}°\nP:${data.wpitch}° R:${data.wroll}° G:${data.gripper}°`;
+          })
+          .catch((err) => console.error('Could not load angles', err));
+      }
+
+      // Fetch angles immediately, then update every 2 seconds
+      fetchAngles();
+      setInterval(fetchAngles, 2000);
+
+      // Send the manual move command
+      function sendManualMove() {
+        const joint = document.getElementById('jointSelect').value;
+        const angle = document.getElementById('angleInput').value;
+
+        if (angle === '') {
+          alert('Please enter an angle!');
+          return;
         }
 
-        // Chassis Movement Logic
-        function startMove(dir) { sendCommand('chassis', dir); }
-        function stopMove() { sendCommand('chassis', 'x'); }
+        fetch('/cmd/arm/move', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ joint: joint, angle: parseInt(angle) }),
+        });
 
-        // Snap high-res photo logic
-        function takePhoto() {
-            const btn = document.getElementById('captureBtn');
-            const img = document.getElementById('lastPhoto');
-            const text = document.getElementById('snapshotText');
-            
-            btn.innerHTML = '⏳ Processing...';
-            btn.disabled = true;
-            
-            fetch('/capture', { method: 'POST' })
-            .then(response => response.json())
-            .then(data => {
-                if(data.success) {
-                    img.src = '/images/' + data.filename + '?t=' + new Date().getTime(); 
-                    img.style.display = 'block';
-                    text.style.display = 'none';
-                    btn.innerHTML = '📸 SNAP HIGH-RES TARGET';
-                    btn.disabled = false;
-                }
-            })
-            .catch(err => {
-                alert("Error taking photo!");
-                btn.innerHTML = '📸 SNAP HIGH-RES TARGET';
-                btn.disabled = false;
-            });
-        }
+        // Clear the input and fetch updated angles shortly after moving
+        document.getElementById('angleInput').value = '';
+        setTimeout(fetchAngles, 1000);
+      }
     </script>
-</body>
+  </body>
 </html>

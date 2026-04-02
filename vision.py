@@ -14,8 +14,23 @@ class VisionSystem:
         
         # Load grab zone coordinates from config
         self.zone_cfg = config.get("grab_zone", {
-            "width": 120, "height": 90, 
-            "offset_x": -67, "offset_y": -120, "angle": 20
+            "width": 120,   # Width of the box in pixels (make larger for a wider grab area)
+            "height": 90,   # Height of the box in pixels (make larger for a taller grab area)
+            
+            # --- POSITIONING (0 = Centered relative to the base anchor point) ---
+            "offset_x": 0,  # X-Axis (Horizontal)
+                            #   Positive numbers (e.g., 50) move the box RIGHT 👉
+                            #   Negative numbers (e.g., -50) move the box LEFT 👈
+                            
+            "offset_y": 0,  # Y-Axis (Vertical) 
+                            #   Note: In computer vision, 0 is the top of the screen!
+                            #   Positive numbers (e.g., 50) move the box DOWN 👇
+                            #   Negative numbers (e.g., -50) move the box UP 👆
+                            
+            # --- ROTATION (0 = Perfectly straight horizontal/vertical) ---
+            "angle": 0      # Rotation in degrees
+                            #   Positive numbers (e.g., 20) tilt CLOCKWISE ↻
+                            #   Negative numbers (e.g., -20) tilt COUNTER-CLOCKWISE ↺
         })
         
         self.picam2 = Picamera2()

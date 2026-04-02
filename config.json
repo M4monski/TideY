@@ -14,9 +14,9 @@
     "grab_zone": {
       "width": 120,
       "height": 90,
-      "offset_x": -67,
-      "offset_y": -120,
-      "angle": 20
+      "offset_x": 0,
+      "offset_y": 0,
+      "angle": 0
     }
   }
 }

@@ -4,7 +4,7 @@ import os
 import time
 import threading
 import json
-from flask import Flask, render_template, Response, send_from_directory, jsonify
+from flask import Flask, render_template, Response, send_from_directory, jsonify, request
 
 # Import your clean hardware and AI classes
 from chassis import Chassis
@@ -82,6 +82,33 @@ def control_arm(action):
     elif action == 'drop_r': 
         threading.Thread(target=robot_arm.return_sequence, args=('r',)).start()
     return jsonify({"status": "ok", "action": action})
+
+@app.route('/api/arm/angles', methods=['GET'])
+def get_arm_angles():
+    # Map the list of current positions to their readable names
+    angles = {
+        "base": robot_arm.current_pos[0],
+        "shoulder": robot_arm.current_pos[1],
+        "elbow": robot_arm.current_pos[2],
+        "wpitch": robot_arm.current_pos[3],
+        "wroll": robot_arm.current_pos[4],
+        "gripper": robot_arm.current_pos[5]
+    }
+    return jsonify(angles)
+
+@app.route('/cmd/arm/move', methods=['POST'])
+def manual_arm_move():
+    # Receive the joint name and angle from the web UI
+    data = request.json
+    joint = data.get('joint')
+    angle = data.get('angle')
+    
+    if joint and angle is not None:
+        # Run in a background thread so the camera stream doesn't freeze!
+        threading.Thread(target=robot_arm.smooth_move, args=(joint, int(angle))).start()
+        return jsonify({"status": "moving", "joint": joint, "angle": angle})
+        
+    return jsonify({"status": "error", "message": "Invalid data"}), 400
 
 if __name__ == '__main__':
     try:
