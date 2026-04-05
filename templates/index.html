@@ -321,6 +321,32 @@
           <span id="snapshotText" class="snapshot-text">Awaiting Capture</span>
           <img id="lastPhoto" src="" alt="Captured Image" />
         </div>
+        
+        <button id="trackBtn" class="arm-btn bg-yellow" style="width: 90%; max-width: 250px; padding: 12px; margin-top: 15px;" onclick="toggleTracking()">
+          🎯 START AUTO-ALIGN
+        </button>
+      </div>
+
+      <div class="panel">
+        <h4 class="panel-title">RESPONSE ZONE TUNING</h4>
+        
+        <div style="width: 100%; margin-top: 15px;">
+          <label style="font-size: 10px; color: #777;">BOTTOM WIDTH (px)</label>
+          <input type="number" id="rz_bw" class="dist-input" style="margin-top: 2px; margin-bottom: 8px;" value="400">
+
+          <label style="font-size: 10px; color: #777;">TOP WIDTH (px)</label>
+          <input type="number" id="rz_tw" class="dist-input" style="margin-top: 2px; margin-bottom: 8px;" value="150">
+
+          <label style="font-size: 10px; color: #777;">HEIGHT (px)</label>
+          <input type="number" id="rz_h" class="dist-input" style="margin-top: 2px; margin-bottom: 8px;" value="180">
+
+          <label style="font-size: 10px; color: #777;">Y OFFSET (Positive = Down)</label>
+          <input type="number" id="rz_y" class="dist-input" style="margin-top: 2px; margin-bottom: 8px;" value="120">
+        </div>
+
+        <button class="arm-btn bg-blue" style="width: 100%; padding: 10px; margin-top: 5px;" onclick="updateResponseZone()">
+          UPDATE LIVE ZONE
+        </button>
       </div>
 
       <div class="panel">
@@ -535,6 +561,48 @@
         }).catch((err) => console.error('Error sending sweep move:', err));
         
         document.getElementById('distanceInput').value = '';
+      }
+
+      // Auto-Align Logic
+      let isTracking = false;
+      function toggleTracking() {
+        isTracking = !isTracking;
+        const btn = document.getElementById('trackBtn');
+        const state = isTracking ? 'on' : 'off';
+        
+        fetch(`/cmd/chassis/track/${state}`, { method: 'POST' })
+          .catch(err => console.error('Error toggling tracking:', err));
+        
+        if (isTracking) {
+            btn.innerHTML = '🛑 STOP AUTO-ALIGN';
+            btn.style.backgroundColor = '#ff4757'; // Red
+            btn.style.color = 'white';
+        } else {
+            btn.innerHTML = '🎯 START AUTO-ALIGN';
+            btn.style.backgroundColor = '#feca57'; // Yellow
+            btn.style.color = '#111';
+        }
+      }
+
+      // Update the Blue Response Zone live
+      function updateResponseZone() {
+        const data = {
+          bottom_width: document.getElementById('rz_bw').value,
+          top_width: document.getElementById('rz_tw').value,
+          height: document.getElementById('rz_h').value,
+          offset_y: document.getElementById('rz_y').value
+        };
+
+        fetch('/cmd/vision/response_zone', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(data)
+        })
+        .then(response => response.json())
+        .then(data => {
+            console.log("Zone updated:", data);
+        })
+        .catch(err => console.error('Error updating response zone:', err));
       }
     </script>
   </body>

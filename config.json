@@ -1,6 +1,6 @@
 {
   "chassis": {
-    "speed": 0.7,
+    "speed": 0.6,
     "turn_speed": 0.6,
     "left_pins": [13, 19],
     "right_pins": [18, 12]
@@ -15,8 +15,14 @@
       "width": 120,
       "height": 90,
       "offset_x": 0,
-      "offset_y": 0,
+      "offset_y": -25,
       "angle": 0
+    },
+    "response_zone": {
+      "bottom_width": 275,
+      "top_width": 350,
+      "height": 200,
+      "offset_y": 180
     }
   }
 }

@@ -135,6 +135,187 @@ def control_chassis_distance():
         
     return jsonify({"status": "error", "message": "Invalid distance"}), 400
 
+
+
+@app.route('/cmd/vision/response_zone', methods=['POST'])
+def update_response_zone():
+    data = request.json
+    
+    # 1. Instantly update the live camera feed in memory
+    if 'bottom_width' in data: 
+        eyes.response_cfg['bottom_width'] = int(data['bottom_width'])
+    if 'top_width' in data: 
+        eyes.response_cfg['top_width'] = int(data['top_width'])
+    if 'height' in data: 
+        eyes.response_cfg['height'] = int(data['height'])
+    if 'offset_y' in data: 
+        eyes.response_cfg['offset_y'] = int(data['offset_y'])
+        
+    # 2. Permanently save the new settings to config.json
+    try:
+        with open('config.json', 'r') as f:
+            full_config = json.load(f)
+            
+        if 'vision' not in full_config:
+            full_config['vision'] = {}
+            
+        full_config['vision']['response_zone'] = eyes.response_cfg
+        
+        with open('config.json', 'w') as f:
+            json.dump(full_config, f, indent=2)
+            
+        print("[SERVER] Response Zone permanently saved to config.json!")
+    except Exception as e:
+        print(f"[SERVER] Error saving to config: {e}")
+        
+    return jsonify({"status": "updated", "config": eyes.response_cfg})
+
+# --- AUTONOMOUS TRACKING LOOP ---
+tracking_active = False
+
+def tracking_loop():
+    global tracking_active
+    print("[AUTO] Core Hitbox Target Lock loop started.")
+    while tracking_active:
+        try:
+            tx = eyes.target_x
+            
+            # Use getattr to prevent the server from crashing if files are mismatched
+            ty_top = getattr(eyes, 'target_y_top', None)
+            ty_bottom = getattr(eyes, 'target_y_bottom', None)
+            
+            # Safety Check!
+            if ty_top is None and hasattr(eyes, 'target_y'):
+                print("[WARNING] Tracking stopped! Your vision.py is using the old code. Please update vision.py to the Core Hitbox version.")
+                tracking_active = False
+                break
+            
+            if tx is not None and ty_top is not None and ty_bottom is not None:
+                
+                # --- CROSSHAIR MATH ---
+                zh = eyes.zone_cfg.get("height", 90)
+                oy = eyes.zone_cfg.get("offset_y", 0)
+                crosshair_y = 360 - (zh / 2) + oy
+                
+                # WIDENED CROSSHAIR: Gives the robot a 120-pixel wide forgiving window!
+                crosshair_left = 260 
+                crosshair_right = 380
+                # ----------------------
+
+                # ALIGNMENT: 
+                if tx < crosshair_left:
+                    robot_base.spin_left()
+                elif tx > crosshair_right:
+                    robot_base.spin_right()
+                else:
+                    # APPROACH: Target is in the wide vertical lane!
+                    if crosshair_y > ty_bottom:
+                        robot_base.move_approach()
+                    else:
+                        # BULLSEYE! 
+                        robot_base.stop()
+                        print("[AUTO] Crosshair hit the Core Hitbox! Initiating Pickup.")
+                        
+                        tracking_active = False 
+                        threading.Thread(target=robot_arm.pickup_sequence).start()
+            else:
+                robot_base.stop() 
+                
+        except Exception as e:
+            print(f"[AUTO ERROR] {e}")
+            robot_base.stop()
+            
+        time.sleep(0.05) 
+        
+    robot_base.stop() 
+    print("[AUTO] Tracking loop stopped.")
+
+@app.route('/cmd/chassis/track/<state>', methods=['POST'])
+def set_tracking(state):
+    global tracking_active
+    if state == 'on' and not tracking_active:
+        tracking_active = True
+        threading.Thread(target=tracking_loop, daemon=True).start()
+    elif state == 'off':
+        tracking_active = False
+    return jsonify({"status": "ok", "tracking": tracking_active})
+# --------------------------------
+
+# --- AUTONOMOUS TRACKING LOOP ---
+tracking_active = False
+
+def tracking_loop():
+    global tracking_active
+    print("[AUTO] Full-Containment Target Lock loop started.")
+    while tracking_active:
+        try:
+            tx = eyes.target_x
+            ty_top = getattr(eyes, 'target_y_top', None)
+            ty_bottom = getattr(eyes, 'target_y_bottom', None)
+            
+            # Safety Check
+            if ty_top is None and hasattr(eyes, 'target_y'):
+                print("[WARNING] Update vision.py to the Core Hitbox version.")
+                tracking_active = False
+                break
+            
+            if tx is not None and ty_top is not None and ty_bottom is not None:
+                
+                # --- RED BOX (GRAB ZONE) BOUNDARIES ---
+                zh = eyes.zone_cfg.get("height", 90)
+                oy = eyes.zone_cfg.get("offset_y", 0)
+                
+                # Calculate exactly where the top and bottom of the Red Box are on the screen
+                red_center_y = 360 - (zh / 2) + oy
+                red_top = red_center_y - (zh / 2)
+                red_bottom = red_center_y + (zh / 2)
+                
+                # WIDENED CROSSHAIR: (120-pixel wide vertical lane)
+                crosshair_left = 260 
+                crosshair_right = 380
+                # --------------------------------------
+
+                # ALIGNMENT: Keep the center of the trash in the lane
+                if tx < crosshair_left:
+                    robot_base.spin_left()
+                elif tx > crosshair_right:
+                    robot_base.spin_right()
+                else:
+                    # APPROACH STAGE: The trash is in front of us!
+                    
+                    green_height = ty_bottom - ty_top
+                    
+                    # Check 1: FULL CONTAINMENT
+                    # Is the Green Box fully inside the Red Box?
+                    is_contained = (ty_top >= red_top) and (ty_bottom <= red_bottom)
+                    
+                    # Check 2: SAFETY OVERRIDE FOR GIANT TRASH
+                    # If the trash is taller than the red box, it can never fully fit.
+                    # Instead, we trigger when its bottom edge hits the bottom of the red box.
+                    is_giant_trash = (green_height >= zh) and (ty_bottom >= red_bottom)
+                    
+                    # If EITHER condition is true, slam the brakes!
+                    if is_contained or is_giant_trash:
+                        robot_base.stop()
+                        print("[AUTO] Green Box fully covered by Grab Zone! Initiating Pickup.")
+                        
+                        tracking_active = False 
+                        threading.Thread(target=robot_arm.pickup_sequence).start()
+                    else:
+                        # The Green Box hasn't fully entered the Red Box yet. Keep creeping forward.
+                        robot_base.move_approach()
+            else:
+                robot_base.stop() 
+                
+        except Exception as e:
+            print(f"[AUTO ERROR] {e}")
+            robot_base.stop()
+            
+        time.sleep(0.05) 
+        
+    robot_base.stop() 
+    print("[AUTO] Tracking loop stopped.")
+
 if __name__ == '__main__':
     try:
         print("\n[SYSTEM] Server starting on port 5000...")

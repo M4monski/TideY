@@ -109,7 +109,7 @@ class RoboticArm:
         time.sleep(self.pause_time)
         self.smooth_move("wroll", 237)
         time.sleep(self.pause_time)
-        self.smooth_move("gripper", 190)
+        self.smooth_move("gripper", 195)
         time.sleep(self.pause_time)
 
     def return_sequence(self, drop_zone='c'):

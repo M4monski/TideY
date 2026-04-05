@@ -8,29 +8,22 @@ from ultralytics import YOLO
 class VisionSystem:
     def __init__(self, config):
         print("[VISION] Loading YOLOv8 model into memory... please wait.")
-        # Default to 'best.pt' if config is missing
         model_path = config.get("model_path", "best.pt")
         self.model = YOLO(model_path)
         
-        # Load grab zone coordinates from config
         self.zone_cfg = config.get("grab_zone", {
-            "width": 120,   # Width of the box in pixels (make larger for a wider grab area)
-            "height": 90,   # Height of the box in pixels (make larger for a taller grab area)
-            
-            # --- POSITIONING (0 = Centered relative to the base anchor point) ---
-            "offset_x": 0,  # X-Axis (Horizontal)
-                            #   Positive numbers (e.g., 50) move the box RIGHT 👉
-                            #   Negative numbers (e.g., -50) move the box LEFT 👈
-                            
-            "offset_y": 0,  # Y-Axis (Vertical) 
-                            #   Note: In computer vision, 0 is the top of the screen!
-                            #   Positive numbers (e.g., 50) move the box DOWN 👇
-                            #   Negative numbers (e.g., -50) move the box UP 👆
-                            
-            # --- ROTATION (0 = Perfectly straight horizontal/vertical) ---
-            "angle": 0      # Rotation in degrees
-                            #   Positive numbers (e.g., 20) tilt CLOCKWISE ↻
-                            #   Negative numbers (e.g., -20) tilt COUNTER-CLOCKWISE ↺
+            "width": 120,   
+            "height": 90,   
+            "offset_x": 0,  
+            "offset_y": -25,  
+            "angle": 0      
+        })
+
+        self.response_cfg = config.get("response_zone", {
+            "bottom_width": 400, 
+            "top_width": 150,    
+            "height": 180,       
+            "offset_y": 120      
         })
         
         self.picam2 = Picamera2()
@@ -40,9 +33,13 @@ class VisionSystem:
         self.stream_active = False
         self.frame_ready = threading.Event()
         
+        # --- NEW: Holds the X and Y coordinates for the Core Hitbox ---
+        self.target_x = None 
+        self.target_y_top = None
+        self.target_y_bottom = None
+        
     def start_stream(self):
         self.stream_active = True
-        
         with self.camera_lock:
             self.picam2.configure(self.picam2.create_video_configuration(main={"size": (1920, 1080)}))
             self.picam2.start()
@@ -62,39 +59,77 @@ class VisionSystem:
                         self.camera_lock.release()
                 
                 if frame_to_process is not None:
-                    # 1. Resize for fast inference
                     frame_to_process = cv2.resize(frame_to_process, (640, 360))
 
-                    # 2. Color correction
                     if frame_to_process.shape[-1] == 4:
                         frame_to_process = frame_to_process[:, :, :3]
                     frame_to_process = cv2.cvtColor(frame_to_process, cv2.COLOR_RGB2BGR)
 
-                    # 3. YOLO Inference
                     results = self.model(frame_to_process, conf=0.50, verbose=False)
                     annotated_frame = results[0].plot()
                     
-                    # 4. Draw Grab Zone from Config
+                    # --- EXTRACT THE SMALLER MIDDLE BOX (CORE HITBOX) ---
+                    boxes = results[0].boxes
+                    best_x = None
+                    core_top = None
+                    core_bottom = None
+                    max_c = 0
+                    
+                    for box in boxes:
+                        c = float(box.conf[0])
+                        if c > max_c:
+                            max_c = c
+                            x1, y1, x2, y2 = box.xyxy[0].tolist()
+                            best_x = (x1 + x2) / 2 # Center X for steering
+                            
+                            # Math to create the smaller middle box (middle 50%)
+                            box_width = x2 - x1
+                            box_height = y2 - y1
+                            
+                            core_left = x1 + (box_width * 0.25)
+                            core_right = x2 - (box_width * 0.25)
+                            core_top = y1 + (box_height * 0.25)
+                            core_bottom = y2 - (box_height * 0.25)
+                            
+                            # Draw the Green Hitbox on the live feed!
+                            cv2.rectangle(annotated_frame, (int(core_left), int(core_top)), (int(core_right), int(core_bottom)), (0, 255, 0), 2)
+                            cv2.putText(annotated_frame, "CORE HITBOX", (int(core_left), int(core_top) - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 255, 0), 2)
+                            
+                    self.target_x = best_x
+                    self.target_y_top = core_top
+                    self.target_y_bottom = core_bottom
+                    # ----------------------------------------------------
+                    
+                    # Draw Grab Zone
                     zw = self.zone_cfg["width"]
                     zh = self.zone_cfg["height"]
-                    
                     base_center_x = 640 // 2
                     original_center_y = 360 - (zh // 2)
-                    
                     new_center_x = base_center_x + self.zone_cfg["offset_x"]
                     new_center_y = original_center_y + self.zone_cfg["offset_y"]
-                    
                     rotated_rect = ((new_center_x, new_center_y), (zw, zh), self.zone_cfg["angle"])
                     box_points = np.int32(cv2.boxPoints(rotated_rect))
-                    
                     cv2.drawContours(annotated_frame, [box_points], 0, (0, 0, 255), 2)
-                    
                     top_y = np.min(box_points[:, 1])
                     left_x = np.min(box_points[:, 0])
-                    cv2.putText(annotated_frame, "GRAB ZONE", (left_x, top_y - 8), 
-                                cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 2)
+                    cv2.putText(annotated_frame, "GRAB ZONE", (left_x, top_y - 8), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 2)
 
-                    # 5. Compress
+                    # Draw Response Zone
+                    rbw = self.response_cfg["bottom_width"]
+                    rtw = self.response_cfg["top_width"]
+                    rh = self.response_cfg["height"]
+                    base_y = (360 // 2) + self.response_cfg["offset_y"]
+                    resp_top_y = base_y - rh
+                    bottom_left = (base_center_x - (rbw // 2), base_y)
+                    bottom_right = (base_center_x + (rbw // 2), base_y)
+                    top_left = (base_center_x - (rtw // 2), resp_top_y)
+                    top_right = (base_center_x + (rtw // 2), resp_top_y)
+                    cv2.line(annotated_frame, bottom_left, top_left, (255, 0, 0), 2)
+                    cv2.line(annotated_frame, bottom_right, top_right, (255, 0, 0), 2)
+                    cv2.line(annotated_frame, top_left, top_right, (255, 0, 0), 2)
+                    cv2.putText(annotated_frame, "RESPONSE ZONE", (top_left[0], resp_top_y - 8), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 0), 2)
+
+                    # Compress
                     ret, buffer = cv2.imencode('.jpg', annotated_frame)
                     if ret:
                         self.current_stream_frame = buffer.tobytes()
@@ -102,7 +137,6 @@ class VisionSystem:
                         self.frame_ready.clear()
                 else:
                     time.sleep(0.05)
-                    
             except Exception as e:
                 print(f"[VISION] Stream error: {e}")
                 time.sleep(0.1)
@@ -114,18 +148,10 @@ class VisionSystem:
     def capture_high_res(self, filepath):
         with self.camera_lock:
             self.picam2.stop()
-            
             self.picam2.configure(self.picam2.create_still_configuration(main={"size": (1920, 1080)}))
             self.picam2.start()
             self.picam2.capture_file(filepath)
-            
-            res = self.model(filepath, conf=0.15)
-            annotated_high_res = res[0].plot()
-            cv2.imwrite(filepath, annotated_high_res)
-
             self.picam2.stop()
-            
-            # Restart stream
             self.picam2.configure(self.picam2.create_video_configuration(main={"size": (1920, 1080)}))
             self.picam2.start()
 
