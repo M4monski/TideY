@@ -6,249 +6,7 @@
       name="viewport"
       content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no"
     />
-    <style>
-      * {
-        box-sizing: border-box;
-      }
-      body {
-        margin: 0;
-        padding: 0;
-        min-height: 100vh; /* Changed from fixed height to allow expansion */
-        display: flex;
-        flex-direction: column;
-        background-color: #121212;
-        color: white;
-        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-        /* Scroll-locking commands removed here! */
-      }
-
-      /* TOP 70% - LIVE VIDEO FEED */
-      .video-section {
-        height: 70vh;
-        width: 100%;
-        background-color: #000;
-        border-bottom: 3px solid #00d2d3;
-        display: flex;
-        justify-content: center;
-        align-items: center;
-        position: relative;
-      }
-      .video-section img {
-        width: 100%;
-        height: 100%;
-        object-fit: contain;
-      } 
-      .status-overlay {
-        position: absolute;
-        top: 15px;
-        left: 20px;
-        color: #00d2d3;
-        font-weight: 800;
-        font-size: 18px;
-        text-transform: uppercase;
-        letter-spacing: 2px;
-        text-shadow: 2px 2px 4px #000;
-      }
-
-      /* BOTTOM 30% - CONTROL PANELS */
-      .control-section {
-        min-height: 30vh; /* Changed to min-height so it can expand if needed */
-        width: 100%;
-        display: flex;
-        flex-direction: row;
-        flex-wrap: wrap; /* Added so panels stack neatly on smaller screens if you scroll */
-        padding: 10px;
-        gap: 10px;
-        background-color: #1a1a1a;
-      }
-
-      .panel {
-        flex: 1;
-        min-width: 300px; /* Ensures panels don't get too squished before wrapping */
-        background-color: #242424;
-        border-radius: 8px;
-        padding: 20px 10px 10px 10px;
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        justify-content: center;
-        border: 1px solid #333;
-        position: relative;
-      }
-      .panel-title {
-        position: absolute;
-        top: 8px;
-        left: 10px;
-        color: #777;
-        font-size: 11px;
-        text-transform: uppercase;
-        letter-spacing: 1px;
-        font-weight: bold;
-        margin: 0;
-      }
-
-      /* LOWER LEFT: DRIVE CONTROLS (Hold to Move) */
-      .d-pad {
-        display: grid;
-        grid-template-columns: repeat(3, 1fr);
-        gap: 6px;
-        width: 100%;
-        max-width: 220px;
-        margin-top: 15px;
-      }
-      .d-pad button {
-        padding: 15px 0;
-        font-size: 16px;
-        font-weight: bold;
-        background-color: #00d2d3;
-        color: #111;
-        border: none;
-        border-radius: 6px;
-        cursor: pointer;
-        user-select: none;
-        touch-action: manipulation;
-        box-shadow: 0 4px 0 #009b9b;
-        transition: all 0.1s;
-      }
-      .d-pad button:active {
-        box-shadow: 0 0 0 #009b9b;
-        transform: translateY(4px);
-        background-color: #01a3a4;
-      }
-      .empty {
-        visibility: hidden;
-      }
-
-      /* LOWER CENTER: CAMERA & SNAPSHOT */
-      .btn-cam {
-        width: 90%;
-        max-width: 250px;
-        font-size: 13px;
-        font-weight: bold;
-        padding: 12px;
-        border-radius: 6px;
-        background-color: #ff4757;
-        color: white;
-        border: none;
-        cursor: pointer;
-        touch-action: manipulation;
-        margin-top: 15px;
-        margin-bottom: 10px;
-        box-shadow: 0 4px 0 #d03a47;
-        transition: all 0.1s;
-      }
-      .btn-cam:active {
-        box-shadow: 0 0 0 #d03a47;
-        transform: translateY(4px);
-      }
-      .snapshot-container {
-        width: 90%;
-        max-width: 250px;
-        min-height: 120px;
-        flex-grow: 1;
-        border: 2px dashed #444;
-        border-radius: 6px;
-        display: flex;
-        justify-content: center;
-        align-items: center;
-        overflow: hidden;
-        background-color: #111;
-        margin-top: 5px;
-      }
-      .snapshot-container img {
-        width: 100%;
-        height: 100%;
-        object-fit: cover;
-        display: none;
-      }
-      .snapshot-text {
-        color: #555;
-        font-size: 11px;
-        text-transform: uppercase;
-      }
-
-      /* LOWER RIGHT: ARM COMMANDS */
-      .arm-grid {
-        display: grid;
-        grid-template-columns: 1fr 1fr 1fr;
-        gap: 6px;
-        width: 100%;
-        margin-top: 15px;
-        height: 100%;
-      }
-      .full-width {
-        grid-column: span 3;
-      }
-      .half-width {
-        grid-column: span 2;
-      }
-      .arm-btn {
-        font-size: 12px;
-        font-weight: bold;
-        border-radius: 6px;
-        border: none;
-        cursor: pointer;
-        touch-action: manipulation;
-        color: #111;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        box-shadow: 0 4px 0 rgba(0, 0, 0, 0.3);
-        transition: all 0.1s;
-        padding: 10px 5px;
-      }
-      .arm-btn:active {
-        box-shadow: 0 0 0 transparent;
-        transform: translateY(4px);
-      }
-
-      .bg-yellow {
-        background-color: #feca57;
-      }
-      .bg-blue {
-        background-color: #48dbfb;
-      }
-      .bg-grey {
-        background-color: #576574;
-        color: white;
-      }
-
-      /* PRECISE DISTANCE CONTROLS */
-      .dist-input {
-        width: 100%;
-        padding: 8px;
-        margin-top: 15px;
-        background-color: #111;
-        color: #00d2d3;
-        border: 1px solid #444;
-        border-radius: 4px;
-        text-align: center;
-        font-family: monospace;
-        font-size: 14px;
-      }
-      .dist-btn-group {
-        display: flex;
-        gap: 6px;
-        margin-top: 8px;
-        width: 100%;
-      }
-      .dist-btn {
-        flex: 1;
-        padding: 10px;
-        background-color: #ff9f43;
-        color: #111;
-        font-weight: bold;
-        border: none;
-        border-radius: 4px;
-        cursor: pointer;
-        box-shadow: 0 4px 0 #cd7d32;
-        transition: all 0.1s;
-      }
-      .dist-btn:active {
-        box-shadow: 0 0 0 transparent;
-        transform: translateY(4px);
-      }
-    </style>
+    <link rel="stylesheet" href="/static/style.css" />
   </head>
   <body>
     <div class="video-section">
@@ -258,8 +16,29 @@
 
     <div class="control-section">
       <div class="panel">
-        <h4 class="panel-title">CHASSIS CONTROL</h4>
-        
+        <h4 class="panel-title">CHASSIS CONTROL & TELEMETRY</h4>
+
+        <div class="telemetry-grid">
+          <div class="tel-item">
+            <span class="tel-label">STATUS:</span>
+            <span id="hud-status" style="color: #0f0">Booting...</span>
+          </div>
+          <div class="tel-item">
+            <span class="tel-label">IMU:</span>
+            <span id="hud-imu" style="color: #0f0">Checking...</span>
+          </div>
+          <div class="tel-item">
+            <span class="tel-label">YAW:</span> <span id="hud-yaw">0.0°</span>
+          </div>
+          <div class="tel-item">
+            <span class="tel-label">PITCH:</span>
+            <span id="hud-pitch">0.0°</span>
+          </div>
+          <div class="tel-item full-width-tel">
+            <span class="tel-label">ROLL:</span> <span id="hud-roll">0.0°</span>
+          </div>
+        </div>
+
         <div class="d-pad">
           <div class="empty"></div>
           <button
@@ -302,13 +81,33 @@
           </button>
         </div>
 
-        <hr style="border-color: #333; width: 100%; margin: 15px 0 5px 0; border-style: dashed;">
-        <div style="font-size: 10px; color: #777; letter-spacing: 1px;">AUTONOMOUS DISTANCE</div>
-        <input type="number" id="distanceInput" class="dist-input" placeholder="Distance (cm)">
+        <hr
+          style="
+            border-color: #333;
+            width: 100%;
+            margin: 15px 0 5px 0;
+            border-style: dashed;
+          "
+        />
+        <div style="font-size: 10px; color: #777; letter-spacing: 1px">
+          AUTONOMOUS DISTANCE
+        </div>
+        <input
+          type="number"
+          id="distanceInput"
+          class="dist-input"
+          placeholder="Distance (cm)"
+        />
         <div class="dist-btn-group">
-            <button class="dist-btn" onclick="sendDistanceMove('w')">FWD</button>
-            <button class="dist-btn" onclick="sendDistanceMove('s')">REV</button>
-            <button class="dist-btn" style="background-color: #00d2d3; color: #111;" onclick="sendSweep()">SWEEP</button>
+          <button class="dist-btn" onclick="sendDistanceMove('w')">FWD</button>
+          <button class="dist-btn" onclick="sendDistanceMove('s')">REV</button>
+          <button
+            class="dist-btn"
+            style="background-color: #00d2d3; color: #111"
+            onclick="sendSweep()"
+          >
+            SWEEP
+          </button>
         </div>
       </div>
 
@@ -321,30 +120,65 @@
           <span id="snapshotText" class="snapshot-text">Awaiting Capture</span>
           <img id="lastPhoto" src="" alt="Captured Image" />
         </div>
-        
-        <button id="trackBtn" class="arm-btn bg-yellow" style="width: 90%; max-width: 250px; padding: 12px; margin-top: 15px;" onclick="toggleTracking()">
+
+        <button
+          id="trackBtn"
+          class="arm-btn bg-yellow"
+          style="width: 90%; max-width: 250px; padding: 12px; margin-top: 15px"
+          onclick="toggleTracking()"
+        >
           🎯 START AUTO-ALIGN
         </button>
       </div>
 
       <div class="panel">
         <h4 class="panel-title">RESPONSE ZONE TUNING</h4>
-        
-        <div style="width: 100%; margin-top: 15px;">
-          <label style="font-size: 10px; color: #777;">BOTTOM WIDTH (px)</label>
-          <input type="number" id="rz_bw" class="dist-input" style="margin-top: 2px; margin-bottom: 8px;" value="400">
 
-          <label style="font-size: 10px; color: #777;">TOP WIDTH (px)</label>
-          <input type="number" id="rz_tw" class="dist-input" style="margin-top: 2px; margin-bottom: 8px;" value="150">
+        <div style="width: 100%; margin-top: 15px">
+          <label style="font-size: 10px; color: #777">BOTTOM WIDTH (px)</label>
+          <input
+            type="number"
+            id="rz_bw"
+            class="dist-input"
+            style="margin-top: 2px; margin-bottom: 8px"
+            value="400"
+          />
 
-          <label style="font-size: 10px; color: #777;">HEIGHT (px)</label>
-          <input type="number" id="rz_h" class="dist-input" style="margin-top: 2px; margin-bottom: 8px;" value="180">
+          <label style="font-size: 10px; color: #777">TOP WIDTH (px)</label>
+          <input
+            type="number"
+            id="rz_tw"
+            class="dist-input"
+            style="margin-top: 2px; margin-bottom: 8px"
+            value="150"
+          />
 
-          <label style="font-size: 10px; color: #777;">Y OFFSET (Positive = Down)</label>
-          <input type="number" id="rz_y" class="dist-input" style="margin-top: 2px; margin-bottom: 8px;" value="120">
+          <label style="font-size: 10px; color: #777">HEIGHT (px)</label>
+          <input
+            type="number"
+            id="rz_h"
+            class="dist-input"
+            style="margin-top: 2px; margin-bottom: 8px"
+            value="180"
+          />
+
+          <label style="font-size: 10px; color: #777"
+            >Y OFFSET (Positive = Down)</label
+          >
+          <input
+            type="number"
+            id="rz_y"
+            class="dist-input"
+            style="margin-top: 2px; margin-bottom: 8px"
+            value="120"
+          />
         </div>
 
-        <button class="arm-btn bg-blue" style="width: 100%; padding: 10px; margin-top: 5px;" onclick="updateResponseZone()">
+        <button
+          class="arm-btn bg-blue"
+          style="width: 100%; padding: 10px; margin-top: 5px"
+          onclick="updateResponseZone()"
+        >
           UPDATE LIVE ZONE
         </button>
       </div>
@@ -444,166 +278,6 @@
       </div>
     </div>
 
-    <script>
-      // Send hardware commands to the Flask Server
-      function sendCommand(subsystem, action) {
-        fetch(`/cmd/${subsystem}/${action}`, { method: 'POST' }).catch((err) =>
-          console.error(`Error sending command to ${subsystem}:`, err),
-        );
-      }
-
-      // Chassis Movement Logic
-      function startMove(dir) {
-        sendCommand('chassis', dir);
-      }
-      function stopMove() {
-        sendCommand('chassis', 'x');
-      }
-
-      // Snap high-res photo logic
-      function takePhoto() {
-        const btn = document.getElementById('captureBtn');
-        const img = document.getElementById('lastPhoto');
-        const text = document.getElementById('snapshotText');
-
-        btn.innerHTML = '⏳ Processing...';
-        btn.disabled = true;
-
-        fetch('/capture', { method: 'POST' })
-          .then((response) => response.json())
-          .then((data) => {
-            if (data.success) {
-              img.src =
-                '/images/' + data.filename + '?t=' + new Date().getTime();
-              img.style.display = 'block';
-              text.style.display = 'none';
-              btn.innerHTML = '📸 SNAP HIGH-RES TARGET';
-              btn.disabled = false;
-            }
-          })
-          .catch((err) => {
-            alert('Error taking photo!');
-            btn.innerHTML = '📸 SNAP HIGH-RES TARGET';
-            btn.disabled = false;
-          });
-      }
-      
-      // Fetch and display live angles from the server
-      function fetchAngles() {
-        fetch('/api/arm/angles')
-          .then((response) => response.json())
-          .then((data) => {
-            document.getElementById('angleDisplay').innerText =
-              `B:${data.base}° S:${data.shoulder}° E:${data.elbow}°\nP:${data.wpitch}° R:${data.wroll}° G:${data.gripper}°`;
-          })
-          .catch((err) => console.error('Could not load angles', err));
-      }
-
-      // Fetch angles immediately, then update every 2 seconds
-      fetchAngles();
-      setInterval(fetchAngles, 2000);
-
-      // Send the manual move command
-      function sendManualMove() {
-        const joint = document.getElementById('jointSelect').value;
-        const angle = document.getElementById('angleInput').value;
-
-        if (angle === '') {
-          alert('Please enter an angle!');
-          return;
-        }
-
-        fetch('/cmd/arm/move', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ joint: joint, angle: parseInt(angle) }),
-        });
-
-        // Clear the input and fetch updated angles shortly after moving
-        document.getElementById('angleInput').value = '';
-        setTimeout(fetchAngles, 1000);
-      }
-
-      // Precise Distance Logic
-      function sendDistanceMove(direction) {
-        const distInput = document.getElementById('distanceInput').value;
-        const distance = parseFloat(distInput);
-
-        if (isNaN(distance) || distance <= 0) {
-          alert('Please enter a valid distance in centimeters (e.g., 50).');
-          return;
-        }
-
-        fetch('/cmd/chassis/distance', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ distance: distance, direction: direction }),
-        }).catch((err) => console.error('Error sending distance move:', err));
-        
-        // Optional: clear the input after sending
-        document.getElementById('distanceInput').value = '';
-      } 
-
-      // Send the sweep sequence command
-      function sendSweep() {
-        const distInput = document.getElementById('distanceInput').value;
-        const grid_size = parseFloat(distInput);
-
-        if (isNaN(grid_size) || grid_size < 20) {
-          alert('Please enter a valid grid size (minimum 20cm).');
-          return;
-        }
-
-        fetch('/cmd/chassis/sweep', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ distance: grid_size }),
-        }).catch((err) => console.error('Error sending sweep move:', err));
-        
-        document.getElementById('distanceInput').value = '';
-      }
-
-      // Auto-Align Logic
-      let isTracking = false;
-      function toggleTracking() {
-        isTracking = !isTracking;
-        const btn = document.getElementById('trackBtn');
-        const state = isTracking ? 'on' : 'off';
-        
-        fetch(`/cmd/chassis/track/${state}`, { method: 'POST' })
-          .catch(err => console.error('Error toggling tracking:', err));
-        
-        if (isTracking) {
-            btn.innerHTML = '🛑 STOP AUTO-ALIGN';
-            btn.style.backgroundColor = '#ff4757'; // Red
-            btn.style.color = 'white';
-        } else {
-            btn.innerHTML = '🎯 START AUTO-ALIGN';
-            btn.style.backgroundColor = '#feca57'; // Yellow
-            btn.style.color = '#111';
-        }
-      }
-
-      // Update the Blue Response Zone live
-      function updateResponseZone() {
-        const data = {
-          bottom_width: document.getElementById('rz_bw').value,
-          top_width: document.getElementById('rz_tw').value,
-          height: document.getElementById('rz_h').value,
-          offset_y: document.getElementById('rz_y').value
-        };
-
-        fetch('/cmd/vision/response_zone', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(data)
-        })
-        .then(response => response.json())
-        .then(data => {
-            console.log("Zone updated:", data);
-        })
-        .catch(err => console.error('Error updating response zone:', err));
-      }
-    </script>
+    <script src="/static/script.js"></script>
   </body>
 </html>
