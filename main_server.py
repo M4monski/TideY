@@ -4,12 +4,17 @@ import os
 import time
 import threading
 import json
+from flask import jsonify
 from flask import Flask, render_template, Response, send_from_directory, jsonify, request
 
 # Import your clean hardware and AI classes
 from chassis import Chassis
 from arm import RoboticArm
 from vision import VisionSystem
+
+# --- GLOBAL STATUS ---
+robot_status = "Idle"
+# ---------------------
 
 app = Flask(__name__)
 IMAGE_DIR = "images"
@@ -45,6 +50,14 @@ def video_feed_generator():
 @app.route('/video_feed')
 def video_feed():
     return Response(video_feed_generator(), mimetype='multipart/x-mixed-replace; boundary=frame')
+
+@app.route('/api/status', methods=['GET'])
+def get_status():
+    """Sends the latest chassis data and text status to the webpage."""
+    global robot_status
+    telemetry = robot_base.get_telemetry()
+    telemetry["action"] = robot_status
+    return jsonify(telemetry)
 
 @app.route('/capture', methods=['POST'])
 def capture():
@@ -174,50 +187,52 @@ def update_response_zone():
 tracking_active = False
 
 def tracking_loop():
-    global tracking_active
-    print("[AUTO] Core Hitbox Target Lock loop started.")
+    global tracking_active, robot_status
+    robot_status = "Auto-Aligning..."
+    print("[AUTO] Target locked in exact intersection!")
     while tracking_active:
         try:
             tx = eyes.target_x
-            
-            # Use getattr to prevent the server from crashing if files are mismatched
             ty_top = getattr(eyes, 'target_y_top', None)
             ty_bottom = getattr(eyes, 'target_y_bottom', None)
             
-            # Safety Check!
+            # --- NEW: Read the orientation from the camera ---
+            t_orient = getattr(eyes, 'target_orientation', 'vertical')
+            
             if ty_top is None and hasattr(eyes, 'target_y'):
-                print("[WARNING] Tracking stopped! Your vision.py is using the old code. Please update vision.py to the Core Hitbox version.")
+                print("[WARNING] Update vision.py to the Core Hitbox version.")
                 tracking_active = False
                 break
             
             if tx is not None and ty_top is not None and ty_bottom is not None:
-                
-                # --- CROSSHAIR MATH ---
                 zh = eyes.zone_cfg.get("height", 90)
                 oy = eyes.zone_cfg.get("offset_y", 0)
-                crosshair_y = 360 - (zh / 2) + oy
+                red_center_y = 360 - (zh / 2) + oy
+                red_top = red_center_y - (zh / 2)
+                red_bottom = red_center_y + (zh / 2)
                 
-                # WIDENED CROSSHAIR: Gives the robot a 120-pixel wide forgiving window!
                 crosshair_left = 260 
                 crosshair_right = 380
-                # ----------------------
 
-                # ALIGNMENT: 
                 if tx < crosshair_left:
                     robot_base.spin_left()
                 elif tx > crosshair_right:
                     robot_base.spin_right()
                 else:
-                    # APPROACH: Target is in the wide vertical lane!
-                    if crosshair_y > ty_bottom:
-                        robot_base.move_approach()
-                    else:
-                        # BULLSEYE! 
+                    green_height = ty_bottom - ty_top
+                    is_contained = (ty_top >= red_top) and (ty_bottom <= red_bottom)
+                    is_giant_trash = (green_height >= zh) and (ty_bottom >= red_bottom)
+                    
+                    if is_contained or is_giant_trash:
                         robot_base.stop()
-                        print("[AUTO] Crosshair hit the Core Hitbox! Initiating Pickup.")
+                        print(f"[AUTO] Target locked! Orientation: {t_orient.upper()}. Initiating Pickup.")
                         
                         tracking_active = False 
-                        threading.Thread(target=robot_arm.pickup_sequence).start()
+                        
+                        # --- NEW: Pass the orientation variable to your robot arm! ---
+                        threading.Thread(target=robot_arm.pickup_sequence, args=(t_orient,)).start()
+                    else:
+                        robot_base.move_approach()
             else:
                 robot_base.stop() 
                 

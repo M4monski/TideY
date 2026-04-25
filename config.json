@@ -1,6 +1,6 @@
 {
   "chassis": {
-    "speed": 0.6,
+    "speed": 0.7,
     "turn_speed": 0.6,
     "left_pins": [13, 19],
     "right_pins": [18, 12]

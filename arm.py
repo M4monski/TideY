@@ -97,19 +97,36 @@ class RoboticArm:
         print("[ARM] Ready.")
 
     # --- AUTOMATION ALGORITHMS ---
-    def pickup_sequence(self):
-        print("[ARM] Executing Pickup Sequence...")
+    # We added the orientation variable here!
+    def pickup_sequence(self, orientation="vertical"):
+        print(f"[ARM] Executing Pickup Sequence for {orientation.upper()} trash...")
+        
+        # --- ORIENTATION CHECK ---
+        if orientation == "horizontal":
+            # 237 - 90 degrees = 147 degrees
+            # (If it rotates the wrong way, try adding 90 instead: 327, up to your max)
+            target_wroll = 147 
+        else:
+            target_wroll = 237 # Standard vertical position
+        # -------------------------
+
         self.smooth_move("base", 20)
         time.sleep(self.pause_time)
+        
+        # Rotate the wrist FIRST, while the arm is still high in the air
+        self.smooth_move("wroll", target_wroll)
+        time.sleep(self.pause_time)
+        
+        # Now drop the arm down to the trash
         self.smooth_move("shoulder", 100)
         time.sleep(self.pause_time)
         self.smooth_move("elbow", 150)
         time.sleep(self.pause_time)
         self.smooth_move("wpitch", 90)
         time.sleep(self.pause_time)
-        self.smooth_move("wroll", 237)
-        time.sleep(self.pause_time)
-        self.smooth_move("gripper", 195)
+        
+        # Clamp the gripper!
+        self.smooth_move("gripper", 187)
         time.sleep(self.pause_time)
 
     def return_sequence(self, drop_zone='c'):

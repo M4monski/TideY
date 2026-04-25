@@ -33,10 +33,12 @@ class VisionSystem:
         self.stream_active = False
         self.frame_ready = threading.Event()
         
-        # --- NEW: Holds the X and Y coordinates for the Core Hitbox ---
         self.target_x = None 
         self.target_y_top = None
         self.target_y_bottom = None
+        
+        # --- NEW: Holds the orientation of the trash ---
+        self.target_orientation = "vertical" 
         
     def start_stream(self):
         self.stream_active = True
@@ -68,11 +70,11 @@ class VisionSystem:
                     results = self.model(frame_to_process, conf=0.50, verbose=False)
                     annotated_frame = results[0].plot()
                     
-                    # --- EXTRACT THE SMALLER MIDDLE BOX (CORE HITBOX) ---
                     boxes = results[0].boxes
                     best_x = None
                     core_top = None
                     core_bottom = None
+                    current_orientation = "vertical" # Default
                     max_c = 0
                     
                     for box in boxes:
@@ -80,25 +82,31 @@ class VisionSystem:
                         if c > max_c:
                             max_c = c
                             x1, y1, x2, y2 = box.xyxy[0].tolist()
-                            best_x = (x1 + x2) / 2 # Center X for steering
+                            best_x = (x1 + x2) / 2 
                             
-                            # Math to create the smaller middle box (middle 50%)
                             box_width = x2 - x1
                             box_height = y2 - y1
+                            
+                            # --- NEW: ASPECT RATIO CHECK ---
+                            # If width is 30% larger than height, it is lying sideways!
+                            if box_width > (box_height * 1.3):
+                                current_orientation = "horizontal"
+                            else:
+                                current_orientation = "vertical"
+                            # -------------------------------
                             
                             core_left = x1 + (box_width * 0.25)
                             core_right = x2 - (box_width * 0.25)
                             core_top = y1 + (box_height * 0.25)
                             core_bottom = y2 - (box_height * 0.25)
                             
-                            # Draw the Green Hitbox on the live feed!
                             cv2.rectangle(annotated_frame, (int(core_left), int(core_top)), (int(core_right), int(core_bottom)), (0, 255, 0), 2)
-                            cv2.putText(annotated_frame, "CORE HITBOX", (int(core_left), int(core_top) - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 255, 0), 2)
+                            cv2.putText(annotated_frame, f"CORE: {current_orientation.upper()}", (int(core_left), int(core_top) - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 255, 0), 2)
                             
                     self.target_x = best_x
                     self.target_y_top = core_top
                     self.target_y_bottom = core_bottom
-                    # ----------------------------------------------------
+                    self.target_orientation = current_orientation
                     
                     # Draw Grab Zone
                     zw = self.zone_cfg["width"]
@@ -129,7 +137,6 @@ class VisionSystem:
                     cv2.line(annotated_frame, top_left, top_right, (255, 0, 0), 2)
                     cv2.putText(annotated_frame, "RESPONSE ZONE", (top_left[0], resp_top_y - 8), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 0), 2)
 
-                    # Compress
                     ret, buffer = cv2.imencode('.jpg', annotated_frame)
                     if ret:
                         self.current_stream_frame = buffer.tobytes()
