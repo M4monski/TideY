@@ -22,7 +22,7 @@ class RoboticArm:
 
         self.tick_min = 150
         self.tick_max = 600
-        self.home_pos = config.get("home_pos", [20, 50, 90, 200, 237, 140])
+        self.home_pos = config.get("home_pos", [20, 50, 80, 200, 237, 140])
         self.pause_time = config.get("pause_between_joints", 0.5)
         
         self.current_pos = [0] * 6
@@ -102,36 +102,30 @@ class RoboticArm:
         time.sleep(self.pause_time)
         self.smooth_move("shoulder", 100)
         time.sleep(self.pause_time)
-        self.smooth_move("elbow", 50)
+        self.smooth_move("elbow", 150)
         time.sleep(self.pause_time)
-        self.smooth_move("wpitch", 270)
+        self.smooth_move("wpitch", 90)
         time.sleep(self.pause_time)
-        
-        # Clamp gripper (assuming 140 is the open approach angle)
-        self.smooth_move("gripper", 187) 
+        self.smooth_move("gripper", 187)
         time.sleep(self.pause_time)
 
     def return_sequence(self, drop_zone='c'):
         print(f"[ARM] Executing Return Sequence (Zone: {drop_zone})...")
-        
-        if drop_zone == 'l':
-            base_target = 0
-        elif drop_zone == 'r':
-            base_target = 40
-        else:
-            base_target = 20
+        base_target = 20
+        if drop_zone == 'l': base_target = 30
+        elif drop_zone == 'r': base_target = 0
 
         self.smooth_move("base", base_target)
         time.sleep(self.pause_time)
-        self.smooth_move("shoulder", 80)
+        self.smooth_move("shoulder", 30)
         time.sleep(self.pause_time)
-        self.smooth_move("elbow", 130)
+        self.smooth_move("elbow", 240)
         time.sleep(self.pause_time)
-        self.smooth_move("wpitch", 120)
+        self.smooth_move("wpitch", 0)
         time.sleep(self.pause_time)
         self.smooth_move("wroll", 237)
         time.sleep(self.pause_time)
-        self.smooth_move("gripper", 140) 
+        self.smooth_move("gripper", 115)
         time.sleep(self.pause_time)
 
     def home_sequence(self):
@@ -142,6 +136,7 @@ class RoboticArm:
             time.sleep(self.pause_time)
 
     def print_angles(self):
+        """Prints the current angle of all 6 joints."""
         print(f"\n[CURRENT ANGLES] Base: {self.current_pos[0]}° | Shoulder: {self.current_pos[1]}° | "
               f"Elbow: {self.current_pos[2]}° | WPitch: {self.current_pos[3]}° | "
               f"WRoll: {self.current_pos[4]}° | Gripper: {self.current_pos[5]}°\n")
@@ -149,7 +144,7 @@ class RoboticArm:
     def interactive_test(self):
         print("\n--- Interactive Arm Tester ---")
         print("Available joints:", list(self.pins.keys()))
-        print("Commands: 'home', 'pickup', 'return center', 'return left', 'return right', 'quit'\n")
+        print("Commands: 'home', 'pickup', 'return', 'quit'\n")
         
         self.print_angles()
 
@@ -168,16 +163,8 @@ class RoboticArm:
                     self.pickup_sequence()
                     self.print_angles()
                     continue
-                elif cmd == 'return center':
-                    self.return_sequence('c')
-                    self.print_angles()
-                    continue
-                elif cmd == 'return left':
-                    self.return_sequence('l')
-                    self.print_angles()
-                    continue
-                elif cmd == 'return right':
-                    self.return_sequence('r')
+                elif cmd == 'return':
+                    self.return_sequence()
                     self.print_angles()
                     continue
                 
@@ -197,7 +184,7 @@ class RoboticArm:
 
 if __name__ == "__main__":
     config = {
-        "home_pos": [20, 50, 90, 200, 237, 140],
+        "home_pos": [20, 60, 180, 10, 237, 115],
         "pause_between_joints": 0.5
     }
     arm = RoboticArm(config)
