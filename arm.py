@@ -108,7 +108,7 @@ class RoboticArm:
         time.sleep(self.pause_time)
         
         # Clamp gripper (assuming 140 is the open approach angle)
-        self.smooth_move("gripper", 187) 
+        self.smooth_move("gripper", 192) 
         time.sleep(self.pause_time)
 
     def return_sequence(self, drop_zone='c'):
@@ -125,9 +125,9 @@ class RoboticArm:
         time.sleep(self.pause_time)
         self.smooth_move("shoulder", 80)
         time.sleep(self.pause_time)
-        self.smooth_move("elbow", 130)
-        time.sleep(self.pause_time)
         self.smooth_move("wpitch", 120)
+        time.sleep(self.pause_time)
+        self.smooth_move("elbow", 130)
         time.sleep(self.pause_time)
         self.smooth_move("wroll", 237)
         time.sleep(self.pause_time)

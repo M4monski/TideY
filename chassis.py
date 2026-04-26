@@ -332,6 +332,30 @@ class Chassis:
         target_heading = self.get_heading()
         self.drive_straight_for_time(travel_time, target_heading, direction)
 
+    def get_telemetry(self):
+        """Returns the current sensor telemetry as a dictionary matching the frontend."""
+        yaw = self.get_heading()
+        pitch = 0.0
+        roll = 0.0
+        
+        if getattr(self, 'has_imu', False):
+            try:
+                quat = self.bno.quaternion
+                if quat:
+                    # ... [Calculates exact Pitch and Roll with your calibration offsets] ...
+                    pitch = round(pitch_raw + self.PITCH_OFFSET, 1)
+                    roll = round(roll_raw + self.ROLL_OFFSET, 1)
+            except Exception:
+                pass
+
+        return {
+            "yaw": f"{round(yaw, 1)}°",
+            "pitch": f"{pitch}°",
+            "roll": f"{roll}°",
+            "mpu_ok": getattr(self, "has_imu", False),
+            "tilt_warning": self.is_tilted_dangerously()
+        }
+
     def turn_to_absolute_heading(self, target_heading):
         """
         Spins purely based on IMU data until the BNO085 heading matches the target.
