@@ -131,9 +131,22 @@
         </button>
       </div>
 
-      <div class="panel">
-        <h4 class="panel-title">VISION ZONES TUNING</h4>
+<div style="margin-top: 15px; margin-bottom: 20px; padding-bottom: 15px; border-bottom: 1px solid #333;">
+          <label style="font-size: 10px; color: #00d2d3; font-weight: bold;">RED TAPE LEFT EDGE (X)</label>
+          <input type="range" min="0" max="640" value="{{ rt_left }}" id="slider_rt_left" class="slider" oninput="updateRedTapeZone()" style="width: 100%; margin-top: 5px; margin-bottom: 15px;">
+          
+          <label style="font-size: 10px; color: #00d2d3; font-weight: bold;">RED TAPE RIGHT EDGE (X)</label>
+          <input type="range" min="0" max="640" value="{{ rt_right }}" id="slider_rt_right" class="slider" oninput="updateRedTapeZone()" style="width: 100%; margin-top: 5px; margin-bottom: 15px;">
 
+          <label style="font-size: 10px; color: #00d2d3; font-weight: bold;">RED TAPE TOP EDGE (Y)</label>
+          <input type="range" min="0" max="360" value="{{ rt_top }}" id="slider_rt_top" class="slider" oninput="updateRedTapeZone()" style="width: 100%; margin-top: 5px; margin-bottom: 15px;">
+
+          <label style="font-size: 10px; color: #00d2d3; font-weight: bold;">RED TAPE BOTTOM EDGE (Y)</label>
+          <input type="range" min="0" max="360" value="{{ rt_bottom }}" id="slider_rt_bottom" class="slider" oninput="updateRedTapeZone()" style="width: 100%; margin-top: 5px; margin-bottom: 15px;">
+
+          <label style="font-size: 10px; color: #00d2d3; font-weight: bold;">RED TAPE ANGLE (DEGREES)</label>
+          <input type="range" min="-90" max="90" value="{{ rt_angle }}" id="slider_rt_angle" class="slider" oninput="updateRedTapeZone()" style="width: 100%; margin-top: 5px;">
+        </div>
         <div style="margin-top: 15px; display: flex; justify-content: space-between; gap: 5px;">
           <button id="btnResponseZone" class="arm-btn bg-blue" style="width: 48%; padding: 8px;" onclick="switchZone('response')">RESPONSE</button>
           <button id="btnGrabZone" class="arm-btn bg-grey" style="width: 48%; padding: 8px;" onclick="switchZone('grab')">GRAB</button>

@@ -33,6 +33,7 @@ robot_base = Chassis(config.get('chassis', {}))
 robot_arm = RoboticArm(config.get('arm', {}))
 
 eyes = VisionSystem(config.get('vision', {}))
+robot_base.vision = eyes  # <--- NEW: Give chassis access to vision flags
 eyes.start_stream()
 
 # 3. Web Routes
@@ -41,7 +42,12 @@ def index():
     # Pass the live configuration dictionary to the HTML template
     return render_template('index.html', 
                            grab_zone=eyes.zone_cfg, 
-                           response_zone=eyes.response_cfg)
+                           response_zone=eyes.response_cfg,
+                           rt_left=eyes.rt_left,             # <--- UPDATED: Pass all 4 sides
+                           rt_right=eyes.rt_right,
+                           rt_top=eyes.rt_top,
+                           rt_bottom=eyes.rt_bottom,
+                           rt_angle=eyes.rt_angle)
 
 def video_feed_generator():
     while eyes.stream_active:
@@ -84,6 +90,7 @@ def control_chassis(direction):
     elif direction == 'd': robot_base.spin_right()
     elif direction == 'x': robot_base.stop()
     return jsonify({"status": "ok", "action": direction})   
+
 @app.route('/cmd/arm/<action>', methods=['POST'])
 def control_arm(action):
     # We run the arm in a background thread so the camera stream doesn't freeze!
@@ -151,7 +158,43 @@ def control_chassis_distance():
         
     return jsonify({"status": "error", "message": "Invalid distance"}), 400
 
-
+# --- NEW: ROUTE FOR RECTANGULAR ZONE SLIDERS ---
+# --- UPDATED: ROUTE FOR RECTANGULAR ZONE SLIDERS ---
+@app.route('/cmd/vision/red_tape_limit', methods=['POST'])
+def update_red_tape_limit():
+    data = request.json
+    
+    # 1. Update live camera feed instantly
+    if 'rt_left' in data: eyes.rt_left = int(data['rt_left'])
+    if 'rt_right' in data: eyes.rt_right = int(data['rt_right'])
+    if 'rt_top' in data: eyes.rt_top = int(data['rt_top'])
+    if 'rt_bottom' in data: eyes.rt_bottom = int(data['rt_bottom'])
+    if 'rt_angle' in data: eyes.rt_angle = int(data['rt_angle'])
+    
+    # 2. Permanently save the new settings to config.json
+    try:
+        with open('config.json', 'r') as f:
+            full_config = json.load(f)
+            
+        if 'vision' not in full_config:
+            full_config['vision'] = {}
+            
+        full_config['vision']['red_tape_zone'] = {
+            "left": eyes.rt_left,
+            "right": eyes.rt_right,
+            "top": eyes.rt_top,
+            "bottom": eyes.rt_bottom,
+            "angle": eyes.rt_angle
+        }
+        
+        with open('config.json', 'w') as f:
+            json.dump(full_config, f, indent=2)
+            
+        print("[SERVER] Red Tape Zone permanently saved to config.json!")
+    except Exception as e:
+        print(f"[SERVER] Error saving to config: {e}")
+        
+    return jsonify({"status": "success"})
 
 @app.route('/cmd/vision/response_zone', methods=['POST'])
 def update_response_zone():
@@ -164,7 +207,7 @@ def update_response_zone():
         eyes.response_cfg['top_width'] = int(data['top_width'])
     if 'height' in data: 
         eyes.response_cfg['height'] = int(data['height'])
-    if 'offset_x' in data:                                        # <--- Add this block
+    if 'offset_x' in data:
         eyes.response_cfg['offset_x'] = int(data['offset_x'])
     if 'offset_y' in data: 
         eyes.response_cfg['offset_y'] = int(data['offset_y'])
@@ -223,6 +266,7 @@ def update_grab_zone():
         print(f"[SERVER] Error saving to config: {e}")
         
     return jsonify({"status": "updated", "config": eyes.zone_cfg})
+
 @app.route('/cmd/chassis/track/<state>', methods=['POST'])
 def set_tracking(state):
     global tracking_active
@@ -232,6 +276,7 @@ def set_tracking(state):
     elif state == 'off':
         tracking_active = False
     return jsonify({"status": "ok", "tracking": tracking_active})
+
 # --------------------------------
 # --- AUTONOMOUS TRACKING LOOP ---
 tracking_active = False

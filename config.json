@@ -1,6 +1,6 @@
 {
   "chassis": {
-    "speed": 0.8,
+    "speed": 0.7,
     "turn_speed": 0.8,
     "left_pins": [
       13,
@@ -37,6 +37,13 @@
       "height": 200,
       "offset_y": 180,
       "offset_x": -50
+    },
+    "red_tape_zone": {
+      "left": 152,
+      "right": 484,
+      "top": 57,
+      "bottom": 169,
+      "angle": 0
     }
   }
 }

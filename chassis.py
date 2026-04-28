@@ -26,7 +26,7 @@ class Chassis:
         self.motor_left = Motor(forward=left_pins[0], backward=left_pins[1])
         self.motor_right = Motor(forward=right_pins[0], backward=right_pins[1])
         
-        self.base_speed = config.get("speed", 0.8)
+        self.base_speed = config.get("speed", 0.7)
         self.turn_speed = config.get("turn_speed", 0.8)
         
         self.left_trim = 1.0  
@@ -34,6 +34,8 @@ class Chassis:
         
         self.speed_left = self.base_speed * self.left_trim
         self.speed_right = self.base_speed * self.right_trim
+
+        self.vision = None
         
         print("[CHASSIS] Motors Initialized.")
 
@@ -194,15 +196,22 @@ class Chassis:
                     yaw += 360
                     
                 return yaw
-        except Exception:
-            return 0.0
+        except Exception as e:
+            print(f"[IMU ERROR] Sensor failed during turn: {e}")
+            return None
 
     def get_heading_smoothed(self, samples=7):
         readings = []
         for _ in range(samples):
             h = self.get_heading()
-            readings.append(h)
+            # CHANGED: Only add valid readings to the list
+            if h is not None:
+                readings.append(h)
             time.sleep(0.010)
+
+        # CHANGED: If all samples glitched out, return None
+        if not readings:
+            return None
 
         # Convert to unit vectors to handle wrap-around properly
         sin_vals = [math.sin(math.radians(r)) for r in readings]
@@ -315,6 +324,12 @@ class Chassis:
                 self.stop()
                 print("\n[CHASSIS] EMERGENCY STOP: Excessive tilt detected!\n")
                 return 
+            # --- NEW: RED TAPE OVERRIDE ---
+            if self.vision and self.vision.red_tape_triggered:
+                print("\n[CHASSIS] --- RED TAPE BOUNDARY HIT --- Turning around early!\n")
+                self.vision.red_tape_triggered = False  # Reset flag for the next lane
+                self.stop()
+                return  # Exiting early triggers the U-Turn phase of the sweep
                 
             current_heading = self.get_heading()
             error = (target_heading - current_heading + 540) % 360 - 180
@@ -349,6 +364,12 @@ class Chassis:
         pitch = 0.0
         roll = 0.0
         
+        # --- NEW: Safe formatting for yaw ---
+        if yaw is not None:
+            yaw_str = f"{round(yaw, 1)}"
+        else:
+            yaw_str = "ERR" # Sends "ERR" to your dashboard while glitching
+
         if getattr(self, 'has_imu', False):
             try:
                 quat = self.bno.quaternion
@@ -370,7 +391,7 @@ class Chassis:
                 pass
 
         return {
-            "yaw": f"{round(yaw, 1)}",
+            "yaw": yaw_str,  # <--- Use the safe string here
             "pitch": f"{pitch}",
             "roll": f"{roll}",
             "mpu_ok": getattr(self, "has_imu", False),
@@ -447,15 +468,10 @@ class Chassis:
         """
         target_heading = target_heading % 360
 
-        OUTER_SPEED = self.base_speed
-        INNER_SPEED = self.base_speed * 0.35  # tune to match lane width
+        OUTER_SPEED = self.base_speed + 0.10
+        INNER_SPEED = self.base_speed * 0.40  # tune to match lane width
 
-        # Speed ramp — same concept as turn_to_absolute_heading
-        SLOW_ZONE      = 30.0  # degrees — start slowing down when this close to target
-        MIN_SPEED_MULT = 0.45  # minimum multiplier applied to both wheels in slow zone
-                            # keeps robot moving while reducing overshoot risk
-
-        DEADBAND = 5.0
+        DEADBAND = 4.0
         TIMEOUT  = 20.0
 
         print(f"[CHASSIS] Arc U-turn -> {target_heading:.1f}° ({'RIGHT' if turn_deg < 0 else 'LEFT'})")
@@ -469,7 +485,17 @@ class Chassis:
                 break
 
             current = self.get_heading_smoothed(samples=3)
+            
+            # --- NEW: GLITCH HANDLING ---
+            if current is None:
+                # The sensor glitched. We skip the rest of the math for this cycle.
+                # The motors will just keep spinning at whatever speed they were 
+                # previously commanded, carrying the robot smoothly through the glitch!
+                time.sleep(0.01)
+                continue 
+
             error   = (target_heading - current + 540) % 360 - 180
+            
 
             if abs(error) < DEADBAND:
                 self.stop()
@@ -478,11 +504,9 @@ class Chassis:
 
             # Ramp both wheels down proportionally as we approach target.
             # The outer/inner ratio stays the same so arc radius is preserved.
-            t = min(abs(error) / SLOW_ZONE, 1.0)
-            speed_mult = MIN_SPEED_MULT + t * (1.0 - MIN_SPEED_MULT)
-
-            outer = OUTER_SPEED * speed_mult
-            inner = INNER_SPEED * speed_mult
+            # Remove the SLOW_ZONE logic entirely and just use the flat ratio
+            outer = OUTER_SPEED
+            inner = INNER_SPEED
 
             if turn_deg < 0:
                 # RIGHT arc: left is outer (faster), right is inner (slower)
@@ -515,21 +539,38 @@ class Chassis:
 
         for i in range(lanes):
             print(f"[SWEEP] Lane {i + 1}/{lanes} | heading = {current_heading:.1f}°")
+            
+            # 1. Drive straight until time is up OR tape is hit
             self.drive_straight_for_time(lane_time, current_heading)
 
+            # 2. If this was the last lane, we are done sweeping! Break out.
             if i == lanes - 1:
                 break
 
             time.sleep(rest_time)
 
+            # 3. Calculate turn geometry
             turn_deg = -180.0 if use_right_turn else +180.0
             label    = "RIGHT" if use_right_turn else "LEFT"
             print(f"[SWEEP] 180° {label} arc U-turn")
+            
+            # --- NEW: BLINDFOLD THE VISION SYSTEM ---
+            # Turn off tape detection so the turning motion doesn't falsely trigger it
+            if self.vision:
+                self.vision.pause_tape_detection()
+                
+            # 4. Execute the actual turn
             self.arc_turn_to_heading((current_heading + turn_deg) % 360, turn_deg)
 
-            # Stop, let IMU fully settle, read fresh — this becomes the new truth
+            # 5. Stop, let IMU fully settle, read fresh — this becomes the new truth
             self.stop()
             time.sleep(1.0)
+            
+            # --- NEW: OPEN EYES FOR THE NEXT LANE ---
+            # Turn tape detection back on before calculating the new heading and starting the next lane
+            if self.vision:
+                self.vision.resume_tape_detection()
+                
             current_heading = self.get_heading_smoothed(samples=10)
             print(f"[SWEEP] Fresh IMU heading after arc: {current_heading:.1f}° — this is the new straight")
 

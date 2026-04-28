@@ -233,3 +233,25 @@ function fetchTelemetry() {
 
 // Start the loop! Updates twice a second.
 setInterval(fetchTelemetry, 500);
+
+// --- UPDATED: RECTANGULAR RED TAPE BOUNDARY ---
+// --- UPDATED: ROTATED RECTANGULAR RED TAPE BOUNDARY ---
+function updateRedTapeZone() {
+  const left = document.getElementById('slider_rt_left').value;
+  const right = document.getElementById('slider_rt_right').value;
+  const top = document.getElementById('slider_rt_top').value;
+  const bottom = document.getElementById('slider_rt_bottom').value;
+  const angle = document.getElementById('slider_rt_angle').value;
+  
+  fetch('/cmd/vision/red_tape_limit', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ 
+      rt_left: parseInt(left), 
+      rt_right: parseInt(right),
+      rt_top: parseInt(top),
+      rt_bottom: parseInt(bottom),
+      rt_angle: parseInt(angle)
+    })
+  }).catch(err => console.error('Error updating tape zone:', err));
+}
