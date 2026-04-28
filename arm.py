@@ -91,22 +91,18 @@ class RoboticArm:
     def pickup_sequence(self, orientation="vertical"):
         print(f"[ARM] Executing Pickup Sequence for {orientation.upper()} trash...")
         
-        # The default wrist roll for picking up a vertical object
         base_wroll = 237  
-        
         if orientation == "horizontal":
-            print("[ARM] Horizontal target detected! Adjusting wrist by 90 degrees.")
-            # Subtract 90 degrees to rotate the gripper sideways 
-            # (We subtract instead of add to stay under the 270-degree max limit)
             target_wroll = base_wroll - 90 
         else:
             target_wroll = base_wroll 
 
+        # Move directly to your calibrated pickup position
         self.smooth_move("base", 20)
         time.sleep(self.pause_time)
         self.smooth_move("wroll", target_wroll)
         time.sleep(self.pause_time)
-        self.smooth_move("shoulder", 93)
+        self.smooth_move("shoulder", 90)
         time.sleep(self.pause_time)
         self.smooth_move("elbow", 50)
         time.sleep(self.pause_time)
@@ -127,6 +123,7 @@ class RoboticArm:
         else:
             base_target = 20
         
+        # Move directly to the drop position
         self.smooth_move("shoulder", 80)
         time.sleep(self.pause_time)
         self.smooth_move("base", base_target)
@@ -137,8 +134,38 @@ class RoboticArm:
         time.sleep(self.pause_time)
         self.smooth_move("wroll", 237)
         time.sleep(self.pause_time)
+        
+        # Open gripper to drop (leaves arm here, ready for the next command)
         self.smooth_move("gripper", 140) 
         time.sleep(self.pause_time)
+    def return_sequence(self, drop_zone='c'):
+        print(f"[ARM] Executing Return Sequence (Zone: {drop_zone})...")
+        
+        if drop_zone == 'l':
+            base_target = 0
+        elif drop_zone == 'r':
+            base_target = 40
+        else:
+            base_target = 20
+        
+        # 1. Lift and reach over the drop zone using proper setup angles
+        self.smooth_move("shoulder", 80)
+        time.sleep(self.pause_time)
+        self.smooth_move("base", base_target)
+        time.sleep(self.pause_time)
+        self.smooth_move("wpitch", 120)
+        time.sleep(self.pause_time)
+        self.smooth_move("elbow", 130)
+        time.sleep(self.pause_time)
+        self.smooth_move("wroll", 237)
+        time.sleep(self.pause_time)
+        
+        # 2. Open gripper to drop the trash
+        self.smooth_move("gripper", 140) 
+        time.sleep(self.pause_time)
+
+        # 3. Retract fully back to Home to prepare for the next detection
+        self.home_sequence()
 
     def home_sequence(self):
         print("[ARM] Returning to Home...")

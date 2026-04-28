@@ -41,7 +41,7 @@ class VisionSystem:
         self.rt_angle = rt_cfg.get("angle", 0)
         
         self.red_tape_triggered = False
-        self.tape_detection_active = True  # <--- NEW: Master toggle for tape detection
+        self.tape_detection_active = True  
         
         self.picam2 = Picamera2()
         self.camera_lock = threading.Lock()
@@ -54,6 +54,7 @@ class VisionSystem:
         self.target_y_top = None
         self.target_y_bottom = None
         self.target_orientation = "vertical" 
+        self.target_class = "unknown" # <--- NEW: Initialize target class
         
         # --- NEW: Auto-Pickup Triggers ---
         self.target_in_response_zone = False 
@@ -94,6 +95,7 @@ class VisionSystem:
                     core_top = None
                     core_bottom = None
                     current_orientation = "vertical" 
+                    current_class = "unknown" # <--- NEW: Reset class every frame
                     max_c = 0
                     
                     # --- NEW: Reset triggers every frame ---
@@ -137,6 +139,7 @@ class VisionSystem:
                         # Target tracking logic (ignores Red_Tape)
                         if c > max_c and cls_name != "Red_Tape":
                             max_c = c
+                            current_class = cls_name # <--- NEW: Store the name of the trash detected
                             x1, y1, x2, y2 = box.xyxy[0].tolist()
                             best_x = (x1 + x2) / 2 
                             
@@ -153,7 +156,6 @@ class VisionSystem:
                             core_top = y1 + (box_height * 0.25)
                             core_bottom = y2 - (box_height * 0.25)
                             
-                            # --- NEW: AUTO-PICKUP ZONE TRIGGER LOGIC ---
                             # Calculate zone boundaries based on your existing config math
                             resp_base_y = (360 // 2) + self.response_cfg["offset_y"]
                             resp_top_y = resp_base_y - self.response_cfg["height"]
@@ -171,12 +173,13 @@ class VisionSystem:
                                 self.target_in_grab_zone = True
                             
                             cv2.rectangle(annotated_frame, (int(core_left), int(core_top)), (int(core_right), int(core_bottom)), (0, 255, 0), 2)
-                            cv2.putText(annotated_frame, f"CORE: {current_orientation.upper()}", (int(core_left), int(core_top) - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 255, 0), 2)
+                            cv2.putText(annotated_frame, f"CORE: {current_orientation.upper()} | {current_class}", (int(core_left), int(core_top) - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 255, 0), 2)
                             
                     self.target_x = best_x
                     self.target_y_top = core_top
                     self.target_y_bottom = core_bottom
                     self.target_orientation = current_orientation
+                    self.target_class = current_class # <--- NEW: Export to the main server
 
                     # --- UPDATED: LIVE CONTINUOUS TAPE TRIGGER LOGIC W/ BLINDFOLD ---
                     if self.tape_detection_active:
@@ -246,7 +249,7 @@ class VisionSystem:
     def pause_tape_detection(self):
         """Disables red tape triggering during maneuvers."""
         self.tape_detection_active = False
-        self.red_tape_triggered = False # Force clear just in case
+        self.red_tape_triggered = False 
 
     def resume_tape_detection(self):
         """Re-enables red tape triggering for straight driving."""

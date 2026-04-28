@@ -292,8 +292,9 @@ def tracking_loop():
             ty_top = getattr(eyes, 'target_y_top', None)
             ty_bottom = getattr(eyes, 'target_y_bottom', None)
             
-            # --- THIS IS THE CRITICAL FIX: Read the orientation from the camera ---
+            # Read orientation and class name from the camera
             t_orient = getattr(eyes, 'target_orientation', 'vertical')
+            t_class = getattr(eyes, 'target_class', 'unknown') # Make sure vision.py sets self.target_class!
             
             # Safety Check
             if ty_top is None and hasattr(eyes, 'target_y'):
@@ -327,12 +328,29 @@ def tracking_loop():
                     
                     if is_contained or is_giant_trash:
                         robot_base.stop()
-                        print(f"[AUTO] Target locked! Orientation: {t_orient.upper()}. Initiating Pickup.")
+                        print(f"[AUTO] Target locked! Class: {t_class} | Orientation: {t_orient.upper()}. Initiating Sequence.")
                         
                         tracking_active = False 
                         
-                        # --- THIS IS THE CRITICAL FIX: Pass the orientation to the arm ---
-                        threading.Thread(target=robot_arm.pickup_sequence, args=(t_orient,)).start()
+                        # --- FULL AUTONOMOUS SEQUENCE RUNNER ---
+                        def auto_pickup_and_drop(orientation, trash_class):
+                            # 1. Execute Pickup
+                            robot_arm.pickup_sequence(orientation)
+                            
+                            # 2. Determine Drop Zone based on class
+                            if trash_class == 'glass_bottle':
+                                zone = 'r'
+                            elif trash_class in ['general_plastic', 'plastic_bottle']:
+                                zone = 'l'
+                            else:
+                                zone = 'c' # Fallback to center if unknown
+                                
+                            # 3. Execute Drop Off
+                            robot_arm.return_sequence(zone)
+                            print("[AUTO] Drop sequence complete. Ready.")
+                            
+                        # Run the combined sequence in the background thread
+                        threading.Thread(target=auto_pickup_and_drop, args=(t_orient, t_class)).start()
                     else:
                         robot_base.move_approach()
             else:
@@ -346,7 +364,6 @@ def tracking_loop():
         
     robot_base.stop() 
     print("[AUTO] Tracking loop stopped.")
-
 
 if __name__ == '__main__':
     try:
