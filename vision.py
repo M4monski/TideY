@@ -39,8 +39,9 @@ class VisionSystem:
         self.rt_top = rt_cfg.get("top", 180)
         self.rt_bottom = rt_cfg.get("bottom", 230)
         self.rt_angle = rt_cfg.get("angle", 0)
+        
         self.red_tape_triggered = False
-        self.tape_detection_active = True
+        self.tape_detection_active = True  # <--- NEW: Master toggle for tape detection
         
         self.picam2 = Picamera2()
         self.camera_lock = threading.Lock()
@@ -53,6 +54,10 @@ class VisionSystem:
         self.target_y_top = None
         self.target_y_bottom = None
         self.target_orientation = "vertical" 
+        
+        # --- NEW: Auto-Pickup Triggers ---
+        self.target_in_response_zone = False 
+        self.target_in_grab_zone = False      
         
     def start_stream(self):
         self.stream_active = True
@@ -91,8 +96,12 @@ class VisionSystem:
                     current_orientation = "vertical" 
                     max_c = 0
                     
+                    # --- NEW: Reset triggers every frame ---
+                    self.target_in_response_zone = False 
+                    self.target_in_grab_zone = False     
+                    
                     tapes_hitting_boundary = 0
-                    large_tape_detected = False  # <--- NEW: Flag for proximity check
+                    large_tape_detected = False 
                     
                     # --- Pre-calculate the rotated rectangle contour points ---
                     rt_w = self.rt_right - self.rt_left
@@ -112,19 +121,16 @@ class VisionSystem:
                         # --- ROTATED RECTANGLE INTERSECTION CHECK ---
                         if cls_name == "Red_Tape":
                             tx1, ty1, tx2, ty2 = box.xyxy[0].tolist()
-                            tape_w = tx2 - tx1  # Calculate the width of this specific tape
+                            tape_w = tx2 - tx1  
                             
-                            # Get the center point of the piece of tape
                             tx_c = (tx1 + tx2) / 2.0
                             ty_c = (ty1 + ty2) / 2.0
                             
-                            # Check if the center of the tape is inside our rotated box points
                             dist = cv2.pointPolygonTest(rt_box_points, (tx_c, ty_c), False)
                             
                             if dist >= 0:
                                 tapes_hitting_boundary += 1
                                 
-                                # NEW: If this single piece of tape spans >= 30% of the boundary zone, it's very close!
                                 if tape_w >= (rt_w * 0.27):
                                     large_tape_detected = True
 
@@ -147,6 +153,23 @@ class VisionSystem:
                             core_top = y1 + (box_height * 0.25)
                             core_bottom = y2 - (box_height * 0.25)
                             
+                            # --- NEW: AUTO-PICKUP ZONE TRIGGER LOGIC ---
+                            # Calculate zone boundaries based on your existing config math
+                            resp_base_y = (360 // 2) + self.response_cfg["offset_y"]
+                            resp_top_y = resp_base_y - self.response_cfg["height"]
+                            
+                            grab_center_y = (360 - (self.zone_cfg["height"] // 2)) + self.zone_cfg["offset_y"]
+                            grab_top_y = grab_center_y - (self.zone_cfg["height"] // 2)
+                            grab_bottom_y = grab_center_y + (self.zone_cfg["height"] // 2)
+
+                            # If the bottom of the trash is inside the response zone
+                            if resp_top_y < y2 < resp_base_y:
+                                self.target_in_response_zone = True
+                                
+                            # If the bottom of the trash touches the grab zone
+                            if grab_top_y < y2 < grab_bottom_y:
+                                self.target_in_grab_zone = True
+                            
                             cv2.rectangle(annotated_frame, (int(core_left), int(core_top)), (int(core_right), int(core_bottom)), (0, 255, 0), 2)
                             cv2.putText(annotated_frame, f"CORE: {current_orientation.upper()}", (int(core_left), int(core_top) - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 255, 0), 2)
                             
@@ -155,23 +178,22 @@ class VisionSystem:
                     self.target_y_bottom = core_bottom
                     self.target_orientation = current_orientation
 
-                    # --- UPDATED: LIVE CONTINUOUS TAPE TRIGGER LOGIC ---
+                    # --- UPDATED: LIVE CONTINUOUS TAPE TRIGGER LOGIC W/ BLINDFOLD ---
                     if self.tape_detection_active:
                         if tapes_hitting_boundary >= 50 or large_tape_detected:
                             self.red_tape_triggered = True
                             
-                            # Show exactly which rule triggered the turnaround
                             trigger_reason = "LARGE TAPE DETECTED!" if large_tape_detected else "5+ TAPES IN ZONE!"
                             cv2.putText(annotated_frame, f"TURN AROUND: {trigger_reason}", (10, 50), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 0, 255), 3)
                         else:
-                            # Automatically turns off when tape count drops AND no large tape is seen
                             self.red_tape_triggered = False
                             if tapes_hitting_boundary > 0:
                                 cv2.putText(annotated_frame, f"TAPES IN ZONE: {tapes_hitting_boundary}/5", (10, 50), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 165, 255), 2)
                     else:
-                        # Force the flag to stay off while turning, and put a visual indicator on the stream
+                        # Force the flag to stay off while turning/picking up, and put a visual indicator on the stream
                         self.red_tape_triggered = False
-                        cv2.putText(annotated_frame, "IGNORING TAPE (TURNING)", (10, 50), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 0, 255), 2)
+                        cv2.putText(annotated_frame, "IGNORING TAPE (MANEUVERING)", (10, 50), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 0, 255), 2)
+
                     
                     # Draw Grab Zone
                     zw = self.zone_cfg["width"]
@@ -205,7 +227,6 @@ class VisionSystem:
                     # --- Draw the Rotated Rectangular Tape Zone ---
                     cv2.drawContours(annotated_frame, [rt_box_points], 0, (0, 255, 255), 2)
                     
-                    # Put text near the highest corner of the rotated box
                     rt_top_y = np.min(rt_box_points[:, 1])
                     rt_left_x = np.min(rt_box_points[:, 0])
                     cv2.putText(annotated_frame, "TAPE BOUNDARY ZONE", (rt_left_x, rt_top_y - 8), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 2)
@@ -221,10 +242,7 @@ class VisionSystem:
                 print(f"[VISION] Stream error: {e}")
                 time.sleep(0.1)
 
-    def get_frame(self):
-        self.frame_ready.wait()
-        return self.current_stream_frame
-    
+    # --- NEW CONTROL METHODS ---
     def pause_tape_detection(self):
         """Disables red tape triggering during maneuvers."""
         self.tape_detection_active = False
@@ -233,6 +251,10 @@ class VisionSystem:
     def resume_tape_detection(self):
         """Re-enables red tape triggering for straight driving."""
         self.tape_detection_active = True
+
+    def get_frame(self):
+        self.frame_ready.wait()
+        return self.current_stream_frame
 
     def capture_high_res(self, filepath):
         with self.camera_lock:
