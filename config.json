@@ -1,7 +1,7 @@
 {
   "chassis": {
-    "speed": 0.7,
-    "turn_speed": 0.6,
+    "speed": 0.8,
+    "turn_speed": 0.8,
     "left_pins": [
       13,
       19
@@ -27,15 +27,16 @@
     "grab_zone": {
       "width": 120,
       "height": 90,
-      "offset_x": 0,
-      "offset_y": -25,
+      "offset_x": -30,
+      "offset_y": -85,
       "angle": 0
     },
     "response_zone": {
-      "bottom_width": 275,
-      "top_width": 350,
+      "bottom_width": 200,
+      "top_width": 300,
       "height": 200,
-      "offset_y": 180
+      "offset_y": 180,
+      "offset_x": -50
     }
   }
 }

@@ -132,53 +132,48 @@
       </div>
 
       <div class="panel">
-        <h4 class="panel-title">RESPONSE ZONE TUNING</h4>
+        <h4 class="panel-title">VISION ZONES TUNING</h4>
 
-        <div style="width: 100%; margin-top: 15px">
-          <label style="font-size: 10px; color: #777">BOTTOM WIDTH (px)</label>
-          <input
-            type="number"
-            id="rz_bw"
-            class="dist-input"
-            style="margin-top: 2px; margin-bottom: 8px"
-            value="400"
-          />
-
-          <label style="font-size: 10px; color: #777">TOP WIDTH (px)</label>
-          <input
-            type="number"
-            id="rz_tw"
-            class="dist-input"
-            style="margin-top: 2px; margin-bottom: 8px"
-            value="150"
-          />
-
-          <label style="font-size: 10px; color: #777">HEIGHT (px)</label>
-          <input
-            type="number"
-            id="rz_h"
-            class="dist-input"
-            style="margin-top: 2px; margin-bottom: 8px"
-            value="180"
-          />
-
-          <label style="font-size: 10px; color: #777"
-            >Y OFFSET (Positive = Down)</label
-          >
-          <input
-            type="number"
-            id="rz_y"
-            class="dist-input"
-            style="margin-top: 2px; margin-bottom: 8px"
-            value="120"
-          />
+        <div style="margin-top: 15px; display: flex; justify-content: space-between; gap: 5px;">
+          <button id="btnResponseZone" class="arm-btn bg-blue" style="width: 48%; padding: 8px;" onclick="switchZone('response')">RESPONSE</button>
+          <button id="btnGrabZone" class="arm-btn bg-grey" style="width: 48%; padding: 8px;" onclick="switchZone('grab')">GRAB</button>
         </div>
 
-        <button
-          class="arm-btn bg-blue"
-          style="width: 100%; padding: 10px; margin-top: 5px"
-          onclick="updateResponseZone()"
-        >
+        <div id="responseZoneInputs" style="width: 100%; margin-top: 15px;">
+          <label style="font-size: 10px; color: #777">BOTTOM WIDTH (px)</label>
+          <input type="number" id="rz_bw" class="dist-input" style="margin-top: 2px; margin-bottom: 8px" value="{{ response_zone.bottom_width }}" />
+
+          <label style="font-size: 10px; color: #777">TOP WIDTH (px)</label>
+          <input type="number" id="rz_tw" class="dist-input" style="margin-top: 2px; margin-bottom: 8px" value="{{ response_zone.top_width }}" />
+
+          <label style="font-size: 10px; color: #777">HEIGHT (px)</label>
+          <input type="number" id="rz_h" class="dist-input" style="margin-top: 2px; margin-bottom: 8px" value="{{ response_zone.height }}" />
+
+          <label style="font-size: 10px; color: #777">X OFFSET (Positive = Right)</label>
+          <input type="number" id="rz_x" class="dist-input" style="margin-top: 2px; margin-bottom: 8px" value="{{ response_zone.offset_x }}" />
+
+          <label style="font-size: 10px; color: #777">Y OFFSET (Positive = Down)</label>
+          <input type="number" id="rz_y" class="dist-input" style="margin-top: 2px; margin-bottom: 8px" value="{{ response_zone.offset_y }}" />
+        </div>
+
+        <div id="grabZoneInputs" style="width: 100%; margin-top: 15px; display: none;">
+          <label style="font-size: 10px; color: #777">WIDTH (px)</label>
+          <input type="number" id="gz_w" class="dist-input" style="margin-top: 2px; margin-bottom: 8px" value="{{ grab_zone.width }}" />
+
+          <label style="font-size: 10px; color: #777">HEIGHT (px)</label>
+          <input type="number" id="gz_h" class="dist-input" style="margin-top: 2px; margin-bottom: 8px" value="{{ grab_zone.height }}" />
+
+          <label style="font-size: 10px; color: #777">X OFFSET (Positive = Right)</label>
+          <input type="number" id="gz_x" class="dist-input" style="margin-top: 2px; margin-bottom: 8px" value="{{ grab_zone.offset_x }}" />
+
+          <label style="font-size: 10px; color: #777">Y OFFSET (Positive = Down)</label>
+          <input type="number" id="gz_y" class="dist-input" style="margin-top: 2px; margin-bottom: 8px" value="{{ grab_zone.offset_y }}" />
+
+          <label style="font-size: 10px; color: #777">ANGLE (Degrees)</label>
+          <input type="number" id="gz_a" class="dist-input" style="margin-top: 2px; margin-bottom: 8px" value="{{ grab_zone.angle }}" />
+        </div>
+
+        <button class="arm-btn bg-yellow" style="width: 100%; padding: 10px; margin-top: 5px" onclick="updateActiveZone()">
           UPDATE LIVE ZONE
         </button>
       </div>

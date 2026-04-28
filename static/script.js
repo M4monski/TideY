@@ -138,11 +138,43 @@ function toggleTracking() {
 }
 
 // Update the Blue Response Zone live
+// --- ZONE TUNING LOGIC ---
+let activeZone = 'response';
+
+function switchZone(zone) {
+  activeZone = zone;
+  const rzInputs = document.getElementById('responseZoneInputs');
+  const gzInputs = document.getElementById('grabZoneInputs');
+  const btnRz = document.getElementById('btnResponseZone');
+  const btnGz = document.getElementById('btnGrabZone');
+
+  if (zone === 'response') {
+    rzInputs.style.display = 'block';
+    gzInputs.style.display = 'none';
+    btnRz.className = 'arm-btn bg-blue';
+    btnGz.className = 'arm-btn bg-grey';
+  } else {
+    rzInputs.style.display = 'none';
+    gzInputs.style.display = 'block';
+    btnRz.className = 'arm-btn bg-grey';
+    btnGz.className = 'arm-btn bg-blue';
+  }
+}
+
+function updateActiveZone() {
+  if (activeZone === 'response') {
+    updateResponseZone();
+  } else {
+    updateGrabZone();
+  }
+}
+
 function updateResponseZone() {
   const data = {
     bottom_width: document.getElementById('rz_bw').value,
     top_width: document.getElementById('rz_tw').value,
     height: document.getElementById('rz_h').value,
+    offset_x: document.getElementById('rz_x').value, // <--- Add this line
     offset_y: document.getElementById('rz_y').value,
   };
 
@@ -152,11 +184,29 @@ function updateResponseZone() {
     body: JSON.stringify(data),
   })
     .then((response) => response.json())
-    .then((data) => {
-      console.log('Zone updated:', data);
-    })
+    .then((data) => console.log('Response Zone updated:', data))
     .catch((err) => console.error('Error updating response zone:', err));
 }
+
+function updateGrabZone() {
+  const data = {
+    width: document.getElementById('gz_w').value,
+    height: document.getElementById('gz_h').value,
+    offset_x: document.getElementById('gz_x').value,
+    offset_y: document.getElementById('gz_y').value,
+    angle: document.getElementById('gz_a').value,
+  };
+
+  fetch('/cmd/vision/grab_zone', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  })
+    .then((response) => response.json())
+    .then((data) => console.log('Grab Zone updated:', data))
+    .catch((err) => console.error('Error updating grab zone:', err));
+}
+// -------------------------
 
 function fetchTelemetry() {
   fetch('/api/status')

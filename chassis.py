@@ -16,27 +16,20 @@ from adafruit_bno08x.i2c import BNO08X_I2C
 class Chassis:
     CALIBRATION_FILE = "bno085_calibration.json"
     
-    # Tune these until flat reads Pitch ~0° Roll ~0°
     PITCH_OFFSET = 4.0    
     ROLL_OFFSET  = -7.0   
 
     def __init__(self, config):
-        """
-        Initializes the motor controller and the BNO085 sensor.
-        """
         left_pins = config.get("left_pins", [13, 19])
         right_pins = config.get("right_pins", [18, 12])
         
         self.motor_left = Motor(forward=left_pins[0], backward=left_pins[1])
         self.motor_right = Motor(forward=right_pins[0], backward=right_pins[1])
         
-        self.base_speed = config.get("speed", 0.5)
-        self.turn_speed = config.get("turn_speed", 0.6)
+        self.base_speed = config.get("speed", 0.8)
+        self.turn_speed = config.get("turn_speed", 0.8)
         
-        # ---------------------------------------------------------
-        # MOTOR TRIM CALIBRATION
-        # ---------------------------------------------------------
-        self.left_trim = 0.91  
+        self.left_trim = 1.0  
         self.right_trim = 1.0  
         
         self.speed_left = self.base_speed * self.left_trim
@@ -44,17 +37,12 @@ class Chassis:
         
         print("[CHASSIS] Motors Initialized.")
 
-        # ---------------------------------------------------------
-        # BNO085 IMU INITIALIZATION & SETUP
-        # ---------------------------------------------------------
         try:
             self.i2c = busio.I2C(board.SCL, board.SDA)
             
-            # Setup reset pin as in test_bno085.py
             bno_reset = DigitalInOut(board.D17)
             self.bno = BNO08X_I2C(self.i2c, reset=bno_reset)
             
-            # Enable both Rotation Vector and Magnetometer for absolute heading
             self.bno.enable_feature(BNO_REPORT_ROTATION_VECTOR)
             self.bno.enable_feature(BNO_REPORT_MAGNETOMETER)
 
@@ -73,11 +61,9 @@ class Chassis:
             print("[CHASSIS] BNO085 hardware initialized.\n")
             time.sleep(2)
             
-            # Follow setup routine from test script
             if not self.load_calibration():
                 self.wait_for_calibration()
 
-            # Always warm up regardless of calibration state
             self.warmup(seconds=5)
             
             self.has_imu = True
@@ -102,7 +88,7 @@ class Chassis:
 
     def load_calibration(self):
         if not os.path.exists(self.CALIBRATION_FILE):
-            print("[CAL] No saved calibration found — starting fresh.")
+            print("[CAL] No saved calibration found -- starting fresh.")
             return False
         try:
             with open(self.CALIBRATION_FILE, "r") as f:
@@ -115,7 +101,7 @@ class Chassis:
             return False
 
     def wait_for_calibration(self):
-        print("\n[CAL] Starting calibration — move sensor in figure-8 on all axes")
+        print("\n[CAL] Starting calibration -- move sensor in figure-8 on all axes")
         print("      Include vertical and tilted orientations, not just flat.")
         print("      Accuracy: 0=unreliable  1=low  2=medium  3=high\n")
 
@@ -155,7 +141,7 @@ class Chassis:
                 if len(history) > 20:
                     history.pop(0)
 
-                bar = "█" * display_accuracy + "░" * (3 - display_accuracy)
+                bar = "X" * display_accuracy + "." * (3 - display_accuracy)
                 label = ["UNRELIABLE", "LOW     ", "MEDIUM  ", "HIGH    "][display_accuracy]
 
                 read_count += 1
@@ -181,7 +167,7 @@ class Chassis:
             time.sleep(0.5)
 
     def warmup(self, seconds=5):
-        print(f"[INIT] Warming up fusion engine ({seconds}s) — hold sensor still...")
+        print(f"[INIT] Warming up fusion engine ({seconds}s) -- hold sensor still...")
         for i in range(seconds, 0, -1):
             print(f"\r[INIT] Starting in {i}s...   ", end="", flush=True)
             time.sleep(1)
@@ -191,10 +177,6 @@ class Chassis:
     # SENSOR READINGS
     # ---------------------------------------------------------
     def get_heading(self):
-        """
-        Extracts absolute yaw (heading) directly from the BNO085 quaternions.
-        Returns a value from 0.0 to 360.0 degrees.
-        """
         if not self.has_imu: 
             return 0.0
             
@@ -204,7 +186,6 @@ class Chassis:
                 i, j, k, real = quat
                 w, x, y, z = real, i, j, k
                 
-                # Yaw (heading) calculated using the math from test script
                 siny_cosp = 2.0 * (w * z + x * y)
                 cosy_cosp = 1.0 - 2.0 * (y * y + z * z)
                 yaw = math.degrees(math.atan2(siny_cosp, cosy_cosp))
@@ -216,8 +197,44 @@ class Chassis:
         except Exception:
             return 0.0
 
+    def get_heading_smoothed(self, samples=7):
+        readings = []
+        for _ in range(samples):
+            h = self.get_heading()
+            readings.append(h)
+            time.sleep(0.010)
+
+        # Convert to unit vectors to handle wrap-around properly
+        sin_vals = [math.sin(math.radians(r)) for r in readings]
+        cos_vals = [math.cos(math.radians(r)) for r in readings]
+
+        # Compute mean vector
+        sin_mean = sum(sin_vals) / len(sin_vals)
+        cos_mean = sum(cos_vals) / len(cos_vals)
+        mean_deg = math.degrees(math.atan2(sin_mean, cos_mean)) % 360
+
+        # Reject samples that deviate more than 20° from the mean
+        filtered_sin = []
+        filtered_cos = []
+        for r in readings:
+            # Angular distance from mean, wrap-safe
+            diff = abs((r - mean_deg + 540) % 360 - 180)
+            if diff <= 20.0:
+                filtered_sin.append(math.sin(math.radians(r)))
+                filtered_cos.append(math.cos(math.radians(r)))
+
+        # Fall back to full set if all got rejected (shouldn't happen)
+        if not filtered_sin:
+            filtered_sin, filtered_cos = sin_vals, cos_vals
+
+        avg = math.degrees(math.atan2(
+            sum(filtered_sin) / len(filtered_sin),
+            sum(filtered_cos) / len(filtered_cos)
+        )) % 360
+
+        return avg
+
     def is_tilted_dangerously(self):
-        """Calculates Pitch and Roll with offsets to check for tipping."""
         if not self.has_imu: 
             return False
             
@@ -227,17 +244,14 @@ class Chassis:
                 i, j, k, real = quat
                 w, x, y, z = real, i, j, k
 
-                # Pitch
                 sinp = 2.0 * (w * y - z * x)
                 sinp = max(-1.0, min(1.0, sinp))
                 pitch = math.degrees(math.asin(sinp))
 
-                # Roll
                 sinr_cosp = 2.0 * (w * x + y * z)
                 cosr_cosp = 1.0 - 2.0 * (x * x + y * y)
                 roll = math.degrees(math.atan2(sinr_cosp, cosr_cosp))
 
-                # Apply offsets from setup
                 pitch += self.PITCH_OFFSET
                 roll  += self.ROLL_OFFSET
                 
@@ -287,10 +301,7 @@ class Chassis:
     # ADVANCED MOVEMENT
     # ---------------------------------------------------------
     def drive_straight_for_time(self, travel_time, target_heading, direction='w'):
-        """
-        Actively drives for a set time while using the IMU to lock onto a heading.
-        """
-        print(f"[CHASSIS] Driving for {travel_time:.2f}s. Locking heading to {target_heading:.1f}°")
+        print(f"[CHASSIS] Driving for {travel_time:.2f}s. Locking heading to {target_heading:.1f}")
         
         if direction == 's':
             self.move_backward()
@@ -302,13 +313,14 @@ class Chassis:
         while (time.time() - start_time) < travel_time:
             if self.is_tilted_dangerously():
                 self.stop()
-                print("\n[CHASSIS] 🚨 EMERGENCY STOP: Excessive tilt detected! 🚨\n")
+                print("\n[CHASSIS] EMERGENCY STOP: Excessive tilt detected!\n")
                 return 
                 
             current_heading = self.get_heading()
-            
-            # Shortest path error calculation (-180 to +180)
             error = (target_heading - current_heading + 540) % 360 - 180
+            
+            if abs(error) <= 2.0:
+                error = 0.0
             
             correction_strength = 0.015 
             correction = error * correction_strength
@@ -333,7 +345,6 @@ class Chassis:
         self.drive_straight_for_time(travel_time, target_heading, direction)
 
     def get_telemetry(self):
-        """Returns the current sensor telemetry as a dictionary matching the frontend."""
         yaw = self.get_heading()
         pitch = 0.0
         roll = 0.0
@@ -342,91 +353,187 @@ class Chassis:
             try:
                 quat = self.bno.quaternion
                 if quat:
-                    # ... [Calculates exact Pitch and Roll with your calibration offsets] ...
+                    i, j, k, real = quat
+                    w, x, y, z = real, i, j, k
+                    
+                    sinp = 2.0 * (w * y - z * x)
+                    sinp = max(-1.0, min(1.0, sinp))
+                    pitch_raw = math.degrees(math.asin(sinp))
+
+                    sinr_cosp = 2.0 * (w * x + y * z)
+                    cosr_cosp = 1.0 - 2.0 * (x * x + y * y)
+                    roll_raw = math.degrees(math.atan2(sinr_cosp, cosr_cosp))
+
                     pitch = round(pitch_raw + self.PITCH_OFFSET, 1)
                     roll = round(roll_raw + self.ROLL_OFFSET, 1)
             except Exception:
                 pass
 
         return {
-            "yaw": f"{round(yaw, 1)}°",
-            "pitch": f"{pitch}°",
-            "roll": f"{roll}°",
+            "yaw": f"{round(yaw, 1)}",
+            "pitch": f"{pitch}",
+            "roll": f"{roll}",
             "mpu_ok": getattr(self, "has_imu", False),
             "tilt_warning": self.is_tilted_dangerously()
         }
 
     def turn_to_absolute_heading(self, target_heading):
-        """
-        Spins purely based on IMU data until the BNO085 heading matches the target.
-        """
         if not self.has_imu:
             print("[CHASSIS] No IMU. Cannot execute pure absolute turn.")
             return
 
         target_heading = target_heading % 360
-        print(f"\n[CHASSIS] --- SNAPPING TO GRID HEADING: {target_heading:.2f}° ---")
-        
+        print(f"\n[CHASSIS] --- SNAPPING TO GRID HEADING: {target_heading:.2f} ---")
+
+        DEADBAND       = 4.0
+        SLOW_ZONE      = 25.0
+        MIN_TURN_SPEED = 0.28
+        MAX_TURN_SPEED = self.turn_speed
+        SETTLE_READS   = 6
+        TIMEOUT        = 10.0
+
+        settled = 0
+        start_time = time.time()
+
         while True:
-            current = self.get_heading()
-            # Calculate the shortest path (-180 to 180)
-            error = (target_heading - current + 540) % 360 - 180
-            
-            # 2 degree threshold for stopping - with the setup logic, this will hit perfectly
-            if abs(error) < 2.0:
+            if time.time() - start_time > TIMEOUT:
                 self.stop()
+                print("[CHASSIS] Turn timeout -- stopping.")
                 break
-                
-            if error > 0:
-                self.spin_right()
+
+            current = self.get_heading_smoothed(samples=5)
+            error = (target_heading - current + 540) % 360 - 180
+
+            if abs(error) < DEADBAND:
+                self.stop()
+                time.sleep(0.05)
+                settled += 1
+                if settled >= SETTLE_READS:
+                    break
+                time.sleep(0.02)
+                continue
             else:
-                self.spin_left()
-                
+                settled = 0
+
+            t = min(abs(error) / SLOW_ZONE, 1.0)
+            speed = MIN_TURN_SPEED + t * (MAX_TURN_SPEED - MIN_TURN_SPEED)
+
+            if error > 0:
+                # Target is to the LEFT, so spin LEFT
+                self.motor_left.backward(speed)
+                self.motor_right.backward(speed)
+            else:
+                # Target is to the RIGHT, so spin RIGHT
+                self.motor_left.forward(speed)
+                self.motor_right.forward(speed)
+
             time.sleep(0.01)
-            
-        print(f"[CHASSIS] Turn complete. Final Heading: {self.get_heading():.2f}°\n")
+
+        print(f"[CHASSIS] Turn complete. Final Heading: {self.get_heading_smoothed():.2f}\n")
+
+    def arc_turn_to_heading(self, target_heading, turn_deg):
+        """
+        Turns to target_heading using differential steering.
+        Both motors stay moving — outer wheel faster, inner wheel slower.
+
+        Includes a slow zone that ramps both motor speeds down as the robot
+        approaches the target heading, preventing overshoot on loose terrain.
+
+        Args:
+            target_heading: absolute heading to reach (degrees)
+            turn_deg:       negative = right arc, positive = left arc
+        Returns:
+            final heading after arc completes
+        """
+        target_heading = target_heading % 360
+
+        OUTER_SPEED = self.base_speed
+        INNER_SPEED = self.base_speed * 0.35  # tune to match lane width
+
+        # Speed ramp — same concept as turn_to_absolute_heading
+        SLOW_ZONE      = 30.0  # degrees — start slowing down when this close to target
+        MIN_SPEED_MULT = 0.45  # minimum multiplier applied to both wheels in slow zone
+                            # keeps robot moving while reducing overshoot risk
+
+        DEADBAND = 5.0
+        TIMEOUT  = 20.0
+
+        print(f"[CHASSIS] Arc U-turn -> {target_heading:.1f}° ({'RIGHT' if turn_deg < 0 else 'LEFT'})")
+
+        start_time = time.time()
+
+        while True:
+            if time.time() - start_time > TIMEOUT:
+                self.stop()
+                print("[CHASSIS] Arc turn timeout -- stopping.")
+                break
+
+            current = self.get_heading_smoothed(samples=3)
+            error   = (target_heading - current + 540) % 360 - 180
+
+            if abs(error) < DEADBAND:
+                self.stop()
+                time.sleep(0.05)
+                break
+
+            # Ramp both wheels down proportionally as we approach target.
+            # The outer/inner ratio stays the same so arc radius is preserved.
+            t = min(abs(error) / SLOW_ZONE, 1.0)
+            speed_mult = MIN_SPEED_MULT + t * (1.0 - MIN_SPEED_MULT)
+
+            outer = OUTER_SPEED * speed_mult
+            inner = INNER_SPEED * speed_mult
+
+            if turn_deg < 0:
+                # RIGHT arc: left is outer (faster), right is inner (slower)
+                self.motor_left.forward(outer * self.left_trim)
+                self.motor_right.backward(inner * self.right_trim)
+            else:
+                # LEFT arc: right is outer (faster), left is inner (slower)
+                self.motor_left.forward(inner * self.left_trim)
+                self.motor_right.backward(outer * self.right_trim)
+
+            time.sleep(0.02)
+
+        final = self.get_heading_smoothed()
+        print(f"[CHASSIS] Arc turn complete. Final heading: {final:.1f}°")
+        return final
 
     def sweep_area(self, grid_size_cm):
-        """Executes a Boustrophedon sweep relying purely on BNO085 90-deg turns."""
-        lane_width = 50.0
-        rest_time = 1.0  
-        
-        lanes = int(grid_size_cm / lane_width)
-        if lanes < 1: 
-            lanes = 1
+        lane_width_cm = 50.0
+        rest_time     = 0.5
 
-        print(f"\n[CHASSIS] --- STARTING SWEEP ---")
-        
-        memorized_lane_time = grid_size_cm * (6.1 / 170.0)
-        memorized_width_time = lane_width * (6.1 / 170.0)
-        
-        # Lock initial heading to base the entire grid off of
-        grid_target = self.get_heading() 
-        turn_direction = 1 
-        
+        lanes     = max(1, int(grid_size_cm / lane_width_cm))
+        lane_time = grid_size_cm * (6.1 / 170.0)
+
+        # Get the very first heading and drive the first lane with it
+        current_heading = self.get_heading_smoothed(samples=10)
+        print(f"\n[SWEEP] Starting sweep: {lanes} lanes")
+        print(f"[SWEEP] Initial heading = {current_heading:.1f}°")
+
+        use_right_turn = True
+
         for i in range(lanes):
-            # Move forward using memorized time
-            self.drive_straight_for_time(memorized_lane_time, grid_target)
-            
+            print(f"[SWEEP] Lane {i + 1}/{lanes} | heading = {current_heading:.1f}°")
+            self.drive_straight_for_time(lane_time, current_heading)
+
             if i == lanes - 1:
                 break
-                
+
             time.sleep(rest_time)
-                
-            # TURN 1 (90 degrees)
-            grid_target = (grid_target + (90.0 if turn_direction == 1 else -90.0)) % 360  
-            self.turn_to_absolute_heading(grid_target)
-            time.sleep(rest_time)
-            
-            # DRIVE LANE WIDTH using memorized time
-            self.drive_straight_for_time(memorized_width_time, grid_target)
-            time.sleep(rest_time)
-            
-            # TURN 2 (90 degrees)
-            grid_target = (grid_target + (90.0 if turn_direction == 1 else -90.0)) % 360  
-            self.turn_to_absolute_heading(grid_target)
-            time.sleep(rest_time)
-            
-            turn_direction *= -1
-            
-        print("[CHASSIS] --- SWEEP COMPLETE ---\n")
+
+            turn_deg = -180.0 if use_right_turn else +180.0
+            label    = "RIGHT" if use_right_turn else "LEFT"
+            print(f"[SWEEP] 180° {label} arc U-turn")
+            self.arc_turn_to_heading((current_heading + turn_deg) % 360, turn_deg)
+
+            # Stop, let IMU fully settle, read fresh — this becomes the new truth
+            self.stop()
+            time.sleep(1.0)
+            current_heading = self.get_heading_smoothed(samples=10)
+            print(f"[SWEEP] Fresh IMU heading after arc: {current_heading:.1f}° — this is the new straight")
+
+            time.sleep(0.3)
+            use_right_turn = not use_right_turn
+
+        print("[SWEEP] --- SWEEP COMPLETE ---\n")

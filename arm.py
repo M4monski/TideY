@@ -91,26 +91,32 @@ class RoboticArm:
     def pickup_sequence(self, orientation="vertical"):
         print(f"[ARM] Executing Pickup Sequence for {orientation.upper()} trash...")
         
+        # The default wrist roll for picking up a vertical object
+        base_wroll = 237  
+        
         if orientation == "horizontal":
-            target_wroll = 147 
+            print("[ARM] Horizontal target detected! Adjusting wrist by 90 degrees.")
+            # Subtract 90 degrees to rotate the gripper sideways 
+            # (We subtract instead of add to stay under the 270-degree max limit)
+            target_wroll = base_wroll - 90 
         else:
-            target_wroll = 237 
+            target_wroll = base_wroll 
 
         self.smooth_move("base", 20)
         time.sleep(self.pause_time)
         self.smooth_move("wroll", target_wroll)
         time.sleep(self.pause_time)
-        self.smooth_move("shoulder", 100)
+        self.smooth_move("shoulder", 93)
         time.sleep(self.pause_time)
         self.smooth_move("elbow", 50)
         time.sleep(self.pause_time)
         self.smooth_move("wpitch", 270)
         time.sleep(self.pause_time)
         
-        # Clamp gripper (assuming 140 is the open approach angle)
+        # Clamp gripper
         self.smooth_move("gripper", 192) 
         time.sleep(self.pause_time)
-
+        
     def return_sequence(self, drop_zone='c'):
         print(f"[ARM] Executing Return Sequence (Zone: {drop_zone})...")
         
@@ -120,10 +126,10 @@ class RoboticArm:
             base_target = 40
         else:
             base_target = 20
-
-        self.smooth_move("base", base_target)
-        time.sleep(self.pause_time)
+        
         self.smooth_move("shoulder", 80)
+        time.sleep(self.pause_time)
+        self.smooth_move("base", base_target)
         time.sleep(self.pause_time)
         self.smooth_move("wpitch", 120)
         time.sleep(self.pause_time)
@@ -136,9 +142,17 @@ class RoboticArm:
 
     def home_sequence(self):
         print("[ARM] Returning to Home...")
-        joint_names = ["base", "shoulder", "elbow", "wpitch", "wroll", "gripper"]
-        for i, name in enumerate(joint_names):
-            self.smooth_move(name, self.home_pos[i])
+        
+        # The default order that matches the indices in self.home_pos
+        canonical_joints = ["base", "shoulder", "elbow", "wpitch", "wroll", "gripper"]
+        
+        # The customized order you want the arm to physically move in
+        move_order = ["elbow", "base", "shoulder", "wpitch", "wroll", "gripper"]
+        
+        for name in move_order:
+            # Find the correct index for this joint to get its matching home angle
+            index = canonical_joints.index(name)
+            self.smooth_move(name, self.home_pos[index])
             time.sleep(self.pause_time)
 
     def print_angles(self):
