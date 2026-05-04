@@ -1,291 +1,582 @@
 <!doctype html>
-<html>
-  <head>
-    <title>TIDEY Command Center</title>
-    <meta
-      name="viewport"
-      content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no"
-    />
-    <link rel="stylesheet" href="/static/style.css" />
-  </head>
-  <body>
-    <div class="video-section">
-      <div class="status-overlay">🔴 LIVE: TIDEY AI VISION</div>
+<html lang="en">
+<head>
+  <title>TIDEY Command Center</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:        #08090d;
+      --bg2:       #0f1117;
+      --bg3:       #161820;
+      --border:    #252830;
+      --border2:   #2e3240;
+      --cyan:      #00d2d3;
+      --cyan-dim:  #007f80;
+      --amber:     #f0a500;
+      --green:     #00e676;
+      --red:       #ff4757;
+      --text:      #e0e4f0;
+      --text-dim:  #7a7f99;
+      --text-muted:#454a66;
+      --yellow:    #ffd32a;
+      --blue:      #4488ff;
+      --panel-r:   8px;
+    }
+
+    html, body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'Rajdhani', sans-serif;
+      font-size: 15px;
+      line-height: 1.4;
+      height: 100%;
+      overflow: hidden;
+    }
+
+    /* ─── LAYOUT ─────────────────────────────────── */
+    .app {
+      display: grid;
+      grid-template-columns: 1fr 340px;
+      grid-template-rows: auto 1fr;
+      height: 100vh;
+      overflow: hidden;
+    }
+
+    .header {
+      grid-column: 1 / -1;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 10px 16px;
+      background: var(--bg2);
+      border-bottom: 1px solid var(--border);
+    }
+    .header-logo {
+      font-size: 22px;
+      font-weight: 700;
+      letter-spacing: 4px;
+      color: var(--cyan);
+    }
+    .header-logo span { color: var(--text-dim); font-weight: 400; font-size: 13px; letter-spacing: 2px; margin-left: 4px; }
+    .header-status {
+      margin-left: auto;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 11px;
+      color: var(--text-dim);
+    }
+    .pulse {
+      width: 7px; height: 7px;
+      border-radius: 50%;
+      background: var(--red);
+      animation: pulse 1.2s ease-in-out infinite;
+    }
+    .pulse.live { background: var(--green); }
+    @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.35} }
+
+    /* Left column: camera + telemetry */
+    .left-col {
+      display: flex;
+      flex-direction: column;
+      background: #000;
+      position: relative;
+      min-height: 0;
+      overflow: hidden;
+    }
+
+    .video-wrap {
+      position: relative;
+      background: #000;
+      flex: 1;
+      min-height: 0;
+      overflow: hidden;
+    }
+    .video-wrap img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: block;
+    }
+    .video-badge {
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      background: rgba(8,9,13,0.75);
+      border: 1px solid var(--border2);
+      border-radius: 4px;
+      padding: 4px 10px;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 10px;
+      color: var(--red);
+      letter-spacing: 1px;
+      backdrop-filter: blur(4px);
+    }
+
+    /* Telemetry bar */
+    .telemetry-bar {
+      background: var(--bg2);
+      border-top: 1px solid var(--border);
+      padding: 10px 14px;
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      gap: 8px;
+    }
+    .tel-item { display: flex; flex-direction: column; gap: 2px; }
+    .tel-label {
+      font-size: 9px;
+      font-family: 'JetBrains Mono', monospace;
+      color: var(--text-muted);
+      letter-spacing: 1.5px;
+      text-transform: uppercase;
+    }
+    .tel-value {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 13px;
+      color: var(--cyan);
+    }
+    #hud-status, #hud-imu { font-size: 11px; }
+
+    /* Right column: scrollable panels */
+    .right-col {
+      background: var(--bg);
+      border-left: 1px solid var(--border);
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+    }
+
+    /* ─── PANEL ──────────────────────────────────── */
+    .panel {
+      padding: 14px 14px 16px;
+      border-bottom: 1px solid var(--border);
+    }
+    .panel-title {
+      font-size: 9px;
+      font-family: 'JetBrains Mono', monospace;
+      letter-spacing: 2px;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      margin-bottom: 12px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .panel-title::after {
+      content: '';
+      flex: 1;
+      height: 1px;
+      background: var(--border);
+    }
+
+    /* ─── D-PAD ──────────────────────────────────── */
+    .dpad-wrap { display: flex; flex-direction: column; align-items: center; }
+    .d-pad {
+      display: grid;
+      grid-template-columns: repeat(3, 60px);
+      grid-template-rows: repeat(2, 52px);
+      gap: 5px;
+    }
+    .d-pad .empty { background: transparent; pointer-events: none; }
+    .d-pad button, .dist-btn-group button {
+      background: var(--bg3);
+      border: 1px solid var(--border2);
+      border-radius: 6px;
+      color: var(--text);
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 10px;
+      letter-spacing: 1px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: background .12s, border-color .12s, transform .08s;
+      -webkit-tap-highlight-color: transparent;
+      user-select: none;
+    }
+    .d-pad button:active, .dist-btn-group button:active { transform: scale(.94); background: var(--cyan-dim); border-color: var(--cyan); color: #fff; }
+    .d-pad button:hover { background: var(--border2); }
+
+    /* ─── AUTONOMOUS DISTANCE ─────────────────────── */
+    .auto-section {
+      margin-top: 12px;
+      padding-top: 12px;
+      border-top: 1px dashed var(--border2);
+    }
+    .section-label {
+      font-size: 9px;
+      font-family: 'JetBrains Mono', monospace;
+      letter-spacing: 1.5px;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      margin-bottom: 8px;
+    }
+    .dist-input {
+      width: 100%;
+      padding: 8px 10px;
+      background: var(--bg3);
+      border: 1px solid var(--border2);
+      border-radius: 6px;
+      color: var(--text);
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 13px;
+      margin-bottom: 8px;
+      outline: none;
+      transition: border-color .15s;
+    }
+    .dist-input:focus { border-color: var(--cyan); }
+    .dist-input::placeholder { color: var(--text-muted); }
+    .dist-btn-group {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 6px;
+    }
+    .dist-btn-group button { padding: 9px 4px; font-size: 10px; }
+    .dist-btn-group .btn-sweep {
+      background: rgba(0,210,211,0.12);
+      border-color: var(--cyan-dim);
+      color: var(--cyan);
+    }
+    .dist-btn-group .btn-sweep:hover { background: rgba(0,210,211,0.22); }
+
+    /* ─── TARGET ACQUISITION ─────────────────────── */
+    .btn-cam {
+      width: 100%;
+      padding: 11px;
+      background: var(--bg3);
+      border: 1px solid var(--border2);
+      border-radius: 6px;
+      color: var(--text);
+      font-family: 'Rajdhani', sans-serif;
+      font-weight: 600;
+      font-size: 14px;
+      letter-spacing: 1px;
+      cursor: pointer;
+      transition: background .12s, border-color .12s;
+      margin-bottom: 10px;
+    }
+    .btn-cam:hover { background: var(--border2); }
+    .btn-cam:active { background: var(--cyan-dim); border-color: var(--cyan); }
+
+    .snapshot-container {
+      width: 100%;
+      aspect-ratio: 16/9;
+      background: var(--bg3);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+      position: relative;
+      margin-bottom: 10px;
+    }
+    .snapshot-text {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 11px;
+      color: var(--text-muted);
+      letter-spacing: 1px;
+      position: absolute;
+    }
+    #lastPhoto { width: 100%; height: 100%; object-fit: contain; display: none; }
+
+    /* ─── BUTTONS SHARED ─────────────────────────── */
+    .btn {
+      display: block;
+      width: 100%;
+      padding: 10px;
+      border-radius: 6px;
+      border: 1px solid var(--border2);
+      background: var(--bg3);
+      color: var(--text);
+      font-family: 'Rajdhani', sans-serif;
+      font-weight: 600;
+      font-size: 14px;
+      letter-spacing: 1px;
+      cursor: pointer;
+      text-align: center;
+      transition: background .12s, border-color .12s, transform .08s;
+      -webkit-tap-highlight-color: transparent;
+    }
+    .btn:active { transform: scale(.97); }
+    .btn-yellow { background: rgba(255,211,42,.1); border-color: rgba(255,211,42,.4); color: var(--yellow); }
+    .btn-yellow:hover { background: rgba(255,211,42,.2); }
+    .btn-blue { background: rgba(68,136,255,.1); border-color: rgba(68,136,255,.4); color: var(--blue); }
+    .btn-blue:hover { background: rgba(68,136,255,.2); }
+    .btn-grey { background: var(--bg3); border-color: var(--border2); color: var(--text-dim); }
+    .btn-grey:hover { background: var(--border2); }
+    .btn-cyan { background: rgba(0,210,211,.1); border-color: rgba(0,210,211,.4); color: var(--cyan); }
+    .btn-cyan:hover { background: rgba(0,210,211,.2); }
+
+    /* ─── ARM GRID ───────────────────────────────── */
+    .arm-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+    .arm-grid .btn { font-size: 13px; padding: 10px 6px; }
+    .arm-grid .span2 { grid-column: 1 / -1; }
+
+    /* ─── SLIDERS ────────────────────────────────── */
+    .slider-group { margin-bottom: 14px; }
+    .slider-group label {
+      display: flex;
+      justify-content: space-between;
+      font-size: 10px;
+      font-family: 'JetBrains Mono', monospace;
+      color: var(--text-muted);
+      letter-spacing: 1px;
+      text-transform: uppercase;
+      margin-bottom: 5px;
+    }
+    .slider-group label span { color: var(--cyan); }
+    input[type=range] {
+      -webkit-appearance: none;
+      width: 100%;
+      height: 3px;
+      background: var(--border2);
+      border-radius: 2px;
+      outline: none;
+      cursor: pointer;
+    }
+    input[type=range]::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      width: 16px; height: 16px;
+      border-radius: 50%;
+      background: var(--cyan);
+      border: 2px solid var(--bg);
+      cursor: pointer;
+    }
+    input[type=range]::-moz-range-thumb {
+      width: 14px; height: 14px;
+      border-radius: 50%;
+      background: var(--cyan);
+      border: 2px solid var(--bg);
+      cursor: pointer;
+    }
+
+    /* ─── ZONE TOGGLE ────────────────────────────── */
+    .zone-toggle { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-bottom: 12px; }
+
+    /* ─── SELECT ─────────────────────────────────── */
+    select {
+      width: 100%;
+      padding: 9px 10px;
+      background: var(--bg3);
+      border: 1px solid var(--border2);
+      border-radius: 6px;
+      color: var(--text);
+      font-family: 'Rajdhani', sans-serif;
+      font-size: 14px;
+      font-weight: 500;
+      outline: none;
+      margin-bottom: 8px;
+      cursor: pointer;
+    }
+    select:focus { border-color: var(--cyan); }
+
+    /* ─── ANGLE DISPLAY ──────────────────────────── */
+    #angleDisplay {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 11px;
+      color: var(--cyan);
+      background: var(--bg3);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 8px 10px;
+      margin-bottom: 10px;
+      text-align: center;
+      letter-spacing: .5px;
+    }
+
+    /* ─── MOBILE ─────────────────────────────────── */
+    @media (max-width: 700px) {
+      html, body { overflow: auto; height: auto; }
+      .app { height: auto; overflow: visible; grid-template-columns: 1fr; grid-template-rows: auto auto 1fr; }
+      .left-col { grid-column: 1; grid-row: 2; min-height: 240px; max-height: 40vh; overflow: hidden; }
+      .right-col { grid-column: 1; grid-row: 3; border-left: none; border-top: 1px solid var(--border); overflow-y: visible; min-height: 0; }
+      .telemetry-bar { grid-template-columns: repeat(3, 1fr); }
+    }
+    @media (max-width: 400px) {
+      .telemetry-bar { grid-template-columns: repeat(2, 1fr); }
+      .d-pad { grid-template-columns: repeat(3, 52px); grid-template-rows: repeat(2, 46px); }
+    }
+  </style>
+</head>
+<body>
+<div class="app">
+
+  <!-- ─── HEADER ───────────────────────────── -->
+  <header class="header">
+    <div class="header-logo">TIDEY <span>COMMAND CENTER</span></div>
+    <div class="header-status">
+      <div class="pulse live"></div>
+      AI VISION ACTIVE
+    </div>
+  </header>
+
+  <!-- ─── LEFT: CAMERA + TELEMETRY ─────────── -->
+  <div class="left-col">
+    <div class="video-wrap">
+      <div class="video-badge">
+        <div class="pulse"></div>
+        LIVE
+      </div>
       <img id="video_feed" src="/video_feed" alt="Live Camera Feed" />
     </div>
 
-    <div class="control-section">
-      <div class="panel">
-        <h4 class="panel-title">CHASSIS CONTROL & TELEMETRY</h4>
+    <div class="telemetry-bar">
+      <div class="tel-item">
+        <div class="tel-label">STATUS</div>
+        <div id="hud-status" class="tel-value" style="color:var(--green)">Booting…</div>
+      </div>
+      <div class="tel-item">
+        <div class="tel-label">IMU</div>
+        <div id="hud-imu" class="tel-value" style="color:var(--green)">Checking…</div>
+      </div>
+      <div class="tel-item">
+        <div class="tel-label">YAW</div>
+        <div id="hud-yaw" class="tel-value">0.0°</div>
+      </div>
+      <div class="tel-item">
+        <div class="tel-label">PITCH</div>
+        <div id="hud-pitch" class="tel-value">0.0°</div>
+      </div>
+      <div class="tel-item">
+        <div class="tel-label">ROLL</div>
+        <div id="hud-roll" class="tel-value">0.0°</div>
+      </div>
+    </div>
+  </div>
 
-        <div class="telemetry-grid">
-          <div class="tel-item">
-            <span class="tel-label">STATUS:</span>
-            <span id="hud-status" style="color: #0f0">Booting...</span>
-          </div>
-          <div class="tel-item">
-            <span class="tel-label">IMU:</span>
-            <span id="hud-imu" style="color: #0f0">Checking...</span>
-          </div>
-          <div class="tel-item">
-            <span class="tel-label">YAW:</span> <span id="hud-yaw">0.0°</span>
-          </div>
-          <div class="tel-item">
-            <span class="tel-label">PITCH:</span>
-            <span id="hud-pitch">0.0°</span>
-          </div>
-          <div class="tel-item full-width-tel">
-            <span class="tel-label">ROLL:</span> <span id="hud-roll">0.0°</span>
-          </div>
-        </div>
+  <!-- ─── RIGHT: CONTROL PANELS ────────────── -->
+  <div class="right-col">
 
+    <!-- CHASSIS CONTROL -->
+    <div class="panel">
+      <div class="panel-title">Chassis Control</div>
+      <div class="dpad-wrap">
         <div class="d-pad">
           <div class="empty"></div>
-          <button
-            onmousedown="startMove('w')"
-            onmouseup="stopMove()"
-            onmouseleave="stopMove()"
-            ontouchstart="startMove('w'); event.preventDefault()"
-            ontouchend="stopMove(); event.preventDefault()"
-          >
-            FWD
-          </button>
+          <button onmousedown="startMove('w')" onmouseup="stopMove()" onmouseleave="stopMove()"
+                  ontouchstart="startMove('w');event.preventDefault()" ontouchend="stopMove();event.preventDefault()">FWD</button>
           <div class="empty"></div>
-
-          <button
-            onmousedown="startMove('a')"
-            onmouseup="stopMove()"
-            onmouseleave="stopMove()"
-            ontouchstart="startMove('a'); event.preventDefault()"
-            ontouchend="stopMove(); event.preventDefault()"
-          >
-            LFT
-          </button>
-          <button
-            onmousedown="startMove('s')"
-            onmouseup="stopMove()"
-            onmouseleave="stopMove()"
-            ontouchstart="startMove('s'); event.preventDefault()"
-            ontouchend="stopMove(); event.preventDefault()"
-          >
-            REV
-          </button>
-          <button
-            onmousedown="startMove('d')"
-            onmouseup="stopMove()"
-            onmouseleave="stopMove()"
-            ontouchstart="startMove('d'); event.preventDefault()"
-            ontouchend="stopMove(); event.preventDefault()"
-          >
-            RGT
-          </button>
+          <button onmousedown="startMove('a')" onmouseup="stopMove()" onmouseleave="stopMove()"
+                  ontouchstart="startMove('a');event.preventDefault()" ontouchend="stopMove();event.preventDefault()">LFT</button>
+          <button onmousedown="startMove('s')" onmouseup="stopMove()" onmouseleave="stopMove()"
+                  ontouchstart="startMove('s');event.preventDefault()" ontouchend="stopMove();event.preventDefault()">REV</button>
+          <button onmousedown="startMove('d')" onmouseup="stopMove()" onmouseleave="stopMove()"
+                  ontouchstart="startMove('d');event.preventDefault()" ontouchend="stopMove();event.preventDefault()">RGT</button>
         </div>
-
-        <hr
-          style="
-            border-color: #333;
-            width: 100%;
-            margin: 15px 0 5px 0;
-            border-style: dashed;
-          "
-        />
-        <div style="font-size: 10px; color: #777; letter-spacing: 1px">
-          AUTONOMOUS DISTANCE
-        </div>
-        <input
-          type="number"
-          id="distanceInput"
-          class="dist-input"
-          placeholder="Distance (cm)"
-        />
+      </div>
+      <div class="auto-section">
+        <div class="section-label">Autonomous Distance</div>
+        <input type="number" id="distanceInput" class="dist-input" placeholder="Distance (cm)" />
         <div class="dist-btn-group">
-          <button class="dist-btn" onclick="sendDistanceMove('w')">FWD</button>
-          <button class="dist-btn" onclick="sendDistanceMove('s')">REV</button>
-          <button
-            class="dist-btn"
-            style="background-color: #00d2d3; color: #111"
-            onclick="sendSweep()"
-          >
-            SWEEP
-          </button>
+          <button onclick="sendDistanceMove('w')">FWD</button>
+          <button onclick="sendDistanceMove('s')">REV</button>
+          <button class="btn-sweep" onclick="sendSweep()">SWEEP</button>
         </div>
-      </div>
-
-      <div class="panel">
-        <h4 class="panel-title">TARGET ACQUISITION</h4>
-        <button id="captureBtn" class="btn-cam" onclick="takePhoto()">
-          📸 SNAP HIGH-RES TARGET
-        </button>
-        <div class="snapshot-container">
-          <span id="snapshotText" class="snapshot-text">Awaiting Capture</span>
-          <img id="lastPhoto" src="" alt="Captured Image" />
-        </div>
-
-        <button
-          id="trackBtn"
-          class="arm-btn bg-yellow"
-          style="width: 90%; max-width: 250px; padding: 12px; margin-top: 15px"
-          onclick="toggleTracking()"
-        >
-          🎯 START AUTO-ALIGN
-        </button>
-      </div>
-
-<div style="margin-top: 15px; margin-bottom: 20px; padding-bottom: 15px; border-bottom: 1px solid #333;">
-          <label style="font-size: 10px; color: #00d2d3; font-weight: bold;">RED TAPE LEFT EDGE (X)</label>
-          <input type="range" min="0" max="640" value="{{ rt_left }}" id="slider_rt_left" class="slider" oninput="updateRedTapeZone()" style="width: 100%; margin-top: 5px; margin-bottom: 15px;">
-          
-          <label style="font-size: 10px; color: #00d2d3; font-weight: bold;">RED TAPE RIGHT EDGE (X)</label>
-          <input type="range" min="0" max="640" value="{{ rt_right }}" id="slider_rt_right" class="slider" oninput="updateRedTapeZone()" style="width: 100%; margin-top: 5px; margin-bottom: 15px;">
-
-          <label style="font-size: 10px; color: #00d2d3; font-weight: bold;">RED TAPE TOP EDGE (Y)</label>
-          <input type="range" min="0" max="360" value="{{ rt_top }}" id="slider_rt_top" class="slider" oninput="updateRedTapeZone()" style="width: 100%; margin-top: 5px; margin-bottom: 15px;">
-
-          <label style="font-size: 10px; color: #00d2d3; font-weight: bold;">RED TAPE BOTTOM EDGE (Y)</label>
-          <input type="range" min="0" max="360" value="{{ rt_bottom }}" id="slider_rt_bottom" class="slider" oninput="updateRedTapeZone()" style="width: 100%; margin-top: 5px; margin-bottom: 15px;">
-
-          <label style="font-size: 10px; color: #00d2d3; font-weight: bold;">RED TAPE ANGLE (DEGREES)</label>
-          <input type="range" min="-90" max="90" value="{{ rt_angle }}" id="slider_rt_angle" class="slider" oninput="updateRedTapeZone()" style="width: 100%; margin-top: 5px;">
-        </div>
-        <div style="margin-top: 15px; display: flex; justify-content: space-between; gap: 5px;">
-          <button id="btnResponseZone" class="arm-btn bg-blue" style="width: 48%; padding: 8px;" onclick="switchZone('response')">RESPONSE</button>
-          <button id="btnGrabZone" class="arm-btn bg-grey" style="width: 48%; padding: 8px;" onclick="switchZone('grab')">GRAB</button>
-        </div>
-
-        <div id="responseZoneInputs" style="width: 100%; margin-top: 15px;">
-          <label style="font-size: 10px; color: #777">BOTTOM WIDTH (px)</label>
-          <input type="number" id="rz_bw" class="dist-input" style="margin-top: 2px; margin-bottom: 8px" value="{{ response_zone.bottom_width }}" />
-
-          <label style="font-size: 10px; color: #777">TOP WIDTH (px)</label>
-          <input type="number" id="rz_tw" class="dist-input" style="margin-top: 2px; margin-bottom: 8px" value="{{ response_zone.top_width }}" />
-
-          <label style="font-size: 10px; color: #777">HEIGHT (px)</label>
-          <input type="number" id="rz_h" class="dist-input" style="margin-top: 2px; margin-bottom: 8px" value="{{ response_zone.height }}" />
-
-          <label style="font-size: 10px; color: #777">X OFFSET (Positive = Right)</label>
-          <input type="number" id="rz_x" class="dist-input" style="margin-top: 2px; margin-bottom: 8px" value="{{ response_zone.offset_x }}" />
-
-          <label style="font-size: 10px; color: #777">Y OFFSET (Positive = Down)</label>
-          <input type="number" id="rz_y" class="dist-input" style="margin-top: 2px; margin-bottom: 8px" value="{{ response_zone.offset_y }}" />
-        </div>
-
-        <div id="grabZoneInputs" style="width: 100%; margin-top: 15px; display: none;">
-          <label style="font-size: 10px; color: #777">WIDTH (px)</label>
-          <input type="number" id="gz_w" class="dist-input" style="margin-top: 2px; margin-bottom: 8px" value="{{ grab_zone.width }}" />
-
-          <label style="font-size: 10px; color: #777">HEIGHT (px)</label>
-          <input type="number" id="gz_h" class="dist-input" style="margin-top: 2px; margin-bottom: 8px" value="{{ grab_zone.height }}" />
-
-          <label style="font-size: 10px; color: #777">X OFFSET (Positive = Right)</label>
-          <input type="number" id="gz_x" class="dist-input" style="margin-top: 2px; margin-bottom: 8px" value="{{ grab_zone.offset_x }}" />
-
-          <label style="font-size: 10px; color: #777">Y OFFSET (Positive = Down)</label>
-          <input type="number" id="gz_y" class="dist-input" style="margin-top: 2px; margin-bottom: 8px" value="{{ grab_zone.offset_y }}" />
-
-          <label style="font-size: 10px; color: #777">ANGLE (Degrees)</label>
-          <input type="number" id="gz_a" class="dist-input" style="margin-top: 2px; margin-bottom: 8px" value="{{ grab_zone.angle }}" />
-        </div>
-
-        <button class="arm-btn bg-yellow" style="width: 100%; padding: 10px; margin-top: 5px" onclick="updateActiveZone()">
-          UPDATE LIVE ZONE
-        </button>
-      </div>
-
-      <div class="panel">
-        <h4 class="panel-title">ROBOTIC ARM SEQUENCE</h4>
-        <div class="arm-grid">
-          <button
-            class="arm-btn bg-yellow half-width"
-            onclick="sendCommand('arm', 'pickup')"
-          >
-            🔽 EXECUTE PICKUP
-          </button>
-          <button class="arm-btn bg-grey" onclick="sendCommand('arm', 'home')">
-            🏠 HOME
-          </button>
-
-          <button
-            class="arm-btn bg-blue"
-            onclick="sendCommand('arm', 'drop_l')"
-          >
-            👈 DROP L
-          </button>
-          <button
-            class="arm-btn bg-blue"
-            onclick="sendCommand('arm', 'drop_c')"
-          >
-            🔽 DROP C
-          </button>
-          <button
-            class="arm-btn bg-blue"
-            onclick="sendCommand('arm', 'drop_r')"
-          >
-            DROP R 👉
-          </button>
-        </div>
-      </div>
-
-      <div class="panel">
-        <h4 class="panel-title">MANUAL ARM</h4>
-        <div
-          id="angleDisplay"
-          style="
-            font-size: 11px;
-            color: #00d2d3;
-            margin-top: 20px;
-            margin-bottom: 10px;
-            font-family: monospace;
-            text-align: center;
-          "
-        >
-          Loading angles...
-        </div>
-
-        <select
-          id="jointSelect"
-          style="
-            width: 90%;
-            padding: 8px;
-            margin-bottom: 8px;
-            background-color: #111;
-            color: white;
-            border: 1px solid #444;
-            border-radius: 4px;
-          "
-        >
-          <option value="base">Base</option>
-          <option value="shoulder">Shoulder</option>
-          <option value="elbow">Elbow</option>
-          <option value="wpitch">Wrist Pitch</option>
-          <option value="wroll">Wrist Roll</option>
-          <option value="gripper">Gripper</option>
-        </select>
-
-        <input
-          type="number"
-          id="angleInput"
-          placeholder="Angle (0-270)"
-          style="
-            width: 90%;
-            padding: 8px;
-            margin-bottom: 8px;
-            background-color: #111;
-            color: white;
-            border: 1px solid #444;
-            border-radius: 4px;
-          "
-        />
-
-        <button
-          class="arm-btn bg-yellow"
-          style="width: 90%; padding: 10px"
-          onclick="sendManualMove()"
-        >
-          MOVE JOINT
-        </button>
       </div>
     </div>
 
-    <script src="/static/script.js"></script>
-  </body>
+    <!-- TARGET ACQUISITION -->
+    <div class="panel">
+      <div class="panel-title">Target Acquisition</div>
+      <button id="captureBtn" class="btn-cam" onclick="takePhoto()">📸 Snap High-Res Target</button>
+      <div class="snapshot-container">
+        <span id="snapshotText" class="snapshot-text">Awaiting Capture</span>
+        <img id="lastPhoto" src="" alt="Captured Image" />
+      </div>
+      <button id="trackBtn" class="btn btn-yellow" onclick="toggleTracking()">🎯 Start Auto-Align</button>
+    </div>
+
+    <!-- ZONE CALIBRATION -->
+    <div class="panel">
+      <div class="panel-title">Zone Calibration</div>
+      <div class="slider-group">
+        <label>Red Tape Left X <span id="val_rt_left">—</span></label>
+        <input type="range" min="0" max="640" value="{{ rt_left }}" id="slider_rt_left"
+               oninput="updateRedTapeZone();document.getElementById('val_rt_left').textContent=this.value" />
+      </div>
+      <div class="slider-group">
+        <label>Red Tape Right X <span id="val_rt_right">—</span></label>
+        <input type="range" min="0" max="640" value="{{ rt_right }}" id="slider_rt_right"
+               oninput="updateRedTapeZone();document.getElementById('val_rt_right').textContent=this.value" />
+      </div>
+      <div class="slider-group">
+        <label>Red Tape Top Y <span id="val_rt_top">—</span></label>
+        <input type="range" min="0" max="360" value="{{ rt_top }}" id="slider_rt_top"
+               oninput="updateRedTapeZone();document.getElementById('val_rt_top').textContent=this.value" />
+      </div>
+      <div class="slider-group">
+        <label>Red Tape Bottom Y <span id="val_rt_bottom">—</span></label>
+        <input type="range" min="0" max="360" value="{{ rt_bottom }}" id="slider_rt_bottom"
+               oninput="updateRedTapeZone();document.getElementById('val_rt_bottom').textContent=this.value" />
+      </div>
+      <div class="slider-group">
+        <label>Tape Angle <span id="val_rt_angle">—</span></label>
+        <input type="range" min="-90" max="90" value="{{ rt_angle }}" id="slider_rt_angle"
+               oninput="updateRedTapeZone();document.getElementById('val_rt_angle').textContent=this.value+'°'" />
+      </div>
+      <div class="zone-toggle">
+        <button id="btnResponseZone" class="btn btn-blue" onclick="switchZone('response')">Response</button>
+        <button id="btnGrabZone" class="btn btn-grey" onclick="switchZone('grab')">Grab</button>
+      </div>
+      <div id="responseZoneInputs">
+        <div class="section-label" style="margin-bottom:8px">Response Zone</div>
+        <input type="number" id="rz_bw" class="dist-input" placeholder="Bottom Width (px)" value="{{ response_zone.bottom_width }}" />
+        <input type="number" id="rz_tw" class="dist-input" placeholder="Top Width (px)" value="{{ response_zone.top_width }}" />
+        <input type="number" id="rz_h"  class="dist-input" placeholder="Height (px)" value="{{ response_zone.height }}" />
+        <input type="number" id="rz_x"  class="dist-input" placeholder="X Offset (+ = Right)" value="{{ response_zone.offset_x }}" />
+        <input type="number" id="rz_y"  class="dist-input" placeholder="Y Offset (+ = Down)" value="{{ response_zone.offset_y }}" />
+      </div>
+      <div id="grabZoneInputs" style="display:none">
+        <div class="section-label" style="margin-bottom:8px">Grab Zone</div>
+        <input type="number" id="gz_w" class="dist-input" placeholder="Width (px)" value="{{ grab_zone.width }}" />
+        <input type="number" id="gz_h" class="dist-input" placeholder="Height (px)" value="{{ grab_zone.height }}" />
+        <input type="number" id="gz_x" class="dist-input" placeholder="X Offset (+ = Right)" value="{{ grab_zone.offset_x }}" />
+        <input type="number" id="gz_y" class="dist-input" placeholder="Y Offset (+ = Down)" value="{{ grab_zone.offset_y }}" />
+        <input type="number" id="gz_a" class="dist-input" placeholder="Angle (°)" value="{{ grab_zone.angle }}" />
+      </div>
+      <button class="btn btn-cyan" style="margin-top:4px" onclick="updateActiveZone()">Update Live Zone</button>
+    </div>
+
+    <!-- ARM SEQUENCES -->
+    <div class="panel">
+      <div class="panel-title">Arm Sequences</div>
+      <div class="arm-grid">
+        <button class="btn btn-yellow span2" onclick="sendCommand('arm','pickup')">🔽 Execute Pickup</button>
+        <button class="btn btn-grey" onclick="sendCommand('arm','home')">🏠 Home</button>
+        <div></div>
+        <button class="btn btn-blue" onclick="sendCommand('arm','drop_l')">👈 Drop L</button>
+        <button class="btn btn-blue" onclick="sendCommand('arm','drop_c')">🔽 Drop C</button>
+        <button class="btn btn-blue" onclick="sendCommand('arm','drop_r')">Drop R 👉</button>
+      </div>
+    </div>
+
+    <!-- MANUAL ARM -->
+    <div class="panel">
+      <div class="panel-title">Manual Arm</div>
+      <div id="angleDisplay">Loading angles…</div>
+      <select id="jointSelect">
+        <option value="base">Base</option>
+        <option value="shoulder">Shoulder</option>
+        <option value="elbow">Elbow</option>
+        <option value="wpitch">Wrist Pitch</option>
+        <option value="wroll">Wrist Roll</option>
+        <option value="gripper">Gripper</option>
+      </select>
+      <input type="number" id="angleInput" class="dist-input" placeholder="Angle (0 – 270)" />
+      <button class="btn btn-yellow" onclick="sendManualMove()">Move Joint</button>
+    </div>
+
+  </div><!-- /right-col -->
+</div><!-- /app -->
+
+<script src="/static/script.js"></script>
+</body>
 </html>
