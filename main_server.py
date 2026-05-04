@@ -33,7 +33,8 @@ robot_base = Chassis(config.get('chassis', {}))
 robot_arm = RoboticArm(config.get('arm', {}))
 
 eyes = VisionSystem(config.get('vision', {}))
-robot_base.vision = eyes  # <--- NEW: Give chassis access to vision flags
+robot_base.vision = eyes
+robot_base.arm    = robot_arm
 eyes.start_stream()
 
 # 3. Web Routes

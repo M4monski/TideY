@@ -37,6 +37,7 @@ class Chassis:
         self.speed_right = self.base_speed * self.right_trim
 
         self.vision = None
+        self.arm    = None
         
         print("[CHASSIS] Motors Initialized.")
 
@@ -376,15 +377,33 @@ class Chassis:
             # --- AUTO PICKUP OVERRIDE ---
             if self.vision and getattr(self.vision, 'target_in_response_zone', False):
                 self.stop()
-                
-                trash_type = getattr(self.vision, 'target_class', "Unknown")
                 time_driven_so_far = time.time() - start_time
-                
-                self.execute_pickup_and_return(trash_type)
-                
+                pause_ts = time.strftime("%H:%M:%S")
+                print(f"\n[SWEEP] {pause_ts} | Target detected. Pausing sweep ({time_driven_so_far:.2f}s into lane).")
+
+                # Multi-target loop: keep picking up while the response zone has valid targets.
+                # MAX_PICKUPS_PER_POSITION guards against an infinite loop if a failed grab
+                # leaves the same item in the zone repeatedly.
+                MAX_PICKUPS_PER_POSITION = 5
+                pickup_count = 0
+                while (pickup_count < MAX_PICKUPS_PER_POSITION
+                       and self.vision
+                       and getattr(self.vision, 'target_in_response_zone', False)):
+                    pickup_count += 1
+                    trash_type = getattr(self.vision, 'target_class', "Unknown")
+                    conf       = getattr(self.vision, 'target_conf',  0.0)
+                    print(f"[SWEEP] Pickup #{pickup_count}: {trash_type} (conf={conf:.2f})")
+                    self.execute_pickup_and_return(trash_type)
+                    # Let the vision thread update the zone flag before re-checking.
+                    time.sleep(0.5)
+
+                if pickup_count >= MAX_PICKUPS_PER_POSITION:
+                    print("[SWEEP] Max pickups reached at this position -- continuing sweep.")
+
                 travel_time = travel_time - time_driven_so_far
-                start_time = time.time()
-                print(f"[CHASSIS] Resuming sweep lane. {travel_time:.2f}s remaining.")
+                start_time  = time.time()
+                resume_ts   = time.strftime("%H:%M:%S")
+                print(f"[SWEEP] {resume_ts} | Zone clear after {pickup_count} pickup(s). Resuming — {travel_time:.2f}s remaining.\n")
                 
             current_heading = self.get_heading()
             
@@ -415,8 +434,9 @@ class Chassis:
         self.stop()
 
     def execute_pickup_and_return(self, trash_type="Unknown"):
-        print(f"\n[PICKUP] --- INITIATING AUTO-PICKUP for: {trash_type.upper()} ---")
-        
+        t_start = time.time()
+        print(f"\n[PICKUP] {time.strftime('%H:%M:%S')} | --- INITIATING AUTO-PICKUP for: {trash_type.upper()} ---")
+
         original_heading = self.get_heading_smoothed(samples=5)
         if original_heading is None:
             original_heading = self.get_heading() or 0.0
@@ -460,43 +480,31 @@ class Chassis:
         approach_time = time.time() - approach_start
         print(f"[PICKUP] Target reached. Forward drive took: {approach_time:.2f}s")
 
-        print("[PICKUP] *** ACTIVATING ARMS / GRABBING TRASH ***")
-        time.sleep(3.0) 
-        
+        t_grab = time.time()
+        print(f"[PICKUP] {time.strftime('%H:%M:%S')} | *** GRABBING TRASH ({t_grab - t_start:.2f}s since pickup start) ***")
+
         trash_lower = trash_type.lower()
         plastic_classes = ["general_plastic", "plastic_bottles", "plastic_bottle"]
-        glass_classes = ["glass_bottle", "glass"]
-        
-        approach_heading = self.get_heading_smoothed(samples=3)
-        if approach_heading is None: 
-            approach_heading = self.get_heading() or original_heading
-            
+        glass_classes   = ["glass_bottles", "glass_bottle", "glass"]
+
         if trash_lower in plastic_classes:
-            print(f"[SORTING] Plastic ({trash_type}) detected! Turning 90° RIGHT to drop...")
-            drop_heading = (approach_heading - 90) % 360
-            self.turn_to_absolute_heading(drop_heading)
-            
-            print("[SORTING] Releasing Plastic...")
-            time.sleep(2.0)
-            
-            print("[SORTING] Re-aligning to reverse line...")
-            self.turn_to_absolute_heading(approach_heading)
-
+            drop_zone = 'l'
         elif trash_lower in glass_classes:
-            print(f"[SORTING] Glass ({trash_type}) detected! Turning 90° LEFT to drop...")
-            drop_heading = (approach_heading + 90) % 360
-            self.turn_to_absolute_heading(drop_heading)
-            
-            print("[SORTING] Releasing Glass...")
-            time.sleep(2.0)
-            
-            print("[SORTING] Re-aligning to reverse line...")
-            self.turn_to_absolute_heading(approach_heading)
-            
+            drop_zone = 'r'
         else:
-            print(f"[SORTING] Unknown/Unsorted item '{trash_type}'. Holding in main carriage.")
+            drop_zone = 'c'
 
-        print(f"[PICKUP] Reversing back to sweep line for {approach_time:.2f}s...")
+        orientation = getattr(self.vision, 'target_orientation', 'vertical') if self.vision else 'vertical'
+
+        if self.arm:
+            print(f"[PICKUP] Arm pickup ({orientation}) -> drop zone '{drop_zone}'")
+            self.arm.pickup_sequence(orientation)
+            self.arm.return_sequence(drop_zone)
+        else:
+            print("[PICKUP] No arm connected -- skipping grab.")
+
+        t_reverse = time.time()
+        print(f"[PICKUP] {time.strftime('%H:%M:%S')} | Reversing to grid position ({approach_time:.2f}s)...")
         reverse_start = time.time()
         
         approach_factor = 0.65 
@@ -514,8 +522,9 @@ class Chassis:
 
         if self.vision:
             self.vision.resume_tape_detection()
-            
-        print("[PICKUP] --- SEQUENCE COMPLETE. RESUMING SWEEP ---\n")
+
+        t_done = time.time()
+        print(f"[PICKUP] {time.strftime('%H:%M:%S')} | --- SEQUENCE COMPLETE (total: {t_done - t_start:.2f}s) ---\n")
 
     def get_telemetry(self):
         yaw = self.get_heading()

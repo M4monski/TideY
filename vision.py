@@ -55,11 +55,12 @@ class VisionSystem:
         self.target_y_top = None
         self.target_y_bottom = None
         self.target_orientation = "vertical" 
-        self.target_class = "unknown" # <--- NEW: Initialize target class
-        
-        # --- NEW: Auto-Pickup Triggers ---
-        self.target_in_response_zone = False 
-        self.target_in_grab_zone = False      
+        self.target_class = "unknown"
+        self.target_conf  = 0.0
+
+        # Auto-Pickup Triggers
+        self.target_in_response_zone = False
+        self.target_in_grab_zone = False
         
     def start_stream(self):
         self.stream_active = True
@@ -191,7 +192,8 @@ class VisionSystem:
                     self.target_y_top = core_top
                     self.target_y_bottom = core_bottom
                     self.target_orientation = current_orientation
-                    self.target_class = current_class # <--- NEW: Export to the main server
+                    self.target_class = current_class
+                    self.target_conf  = max_c if self.target_in_response_zone else 0.0
 
                     # --- UPDATED: LIVE CONTINUOUS TAPE TRIGGER LOGIC W/ BLINDFOLD ---
                     if self.tape_detection_active:
