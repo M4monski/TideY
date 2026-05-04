@@ -6,12 +6,13 @@ import threading
 import board
 import busio
 from gpiozero import Motor
-from digitalio import DigitalInOut
+from digitalio import DigitalInOut, Direction, Pull
 from adafruit_bno08x import (
     BNO_REPORT_ROTATION_VECTOR,
     BNO_REPORT_MAGNETOMETER,
 )
 from adafruit_bno08x.i2c import BNO08X_I2C
+from ina226 import INA226
 
 class Chassis:
     CALIBRATION_FILE = "bno085_calibration.json"
@@ -39,11 +40,20 @@ class Chassis:
         
         print("[CHASSIS] Motors Initialized.")
 
+        # Shared I2C Bus
+        self.i2c = busio.I2C(board.SCL, board.SDA)
+
+        # ---------------------------------------------------------
+        # BNO085 IMU SETUP
+        # ---------------------------------------------------------
         try:
-            self.i2c = busio.I2C(board.SCL, board.SDA)
+            # Set up the interrupt pin on GPIO5
+            bno_int = DigitalInOut(board.D5)
+            bno_int.direction = Direction.INPUT
+            bno_int.pull = Pull.UP
             
-            bno_reset = DigitalInOut(board.D17)
-            self.bno = BNO08X_I2C(self.i2c, reset=bno_reset)
+            # Initialize without a reset pin
+            self.bno = BNO08X_I2C(self.i2c, reset=None)
             
             self.bno.enable_feature(BNO_REPORT_ROTATION_VECTOR)
             self.bno.enable_feature(BNO_REPORT_MAGNETOMETER)
@@ -60,7 +70,7 @@ class Chassis:
                     pass
                 time.sleep(0.1)
 
-            print("[CHASSIS] BNO085 hardware initialized.\n")
+            print("[CHASSIS] BNO085 hardware initialized on GPIO5.\n")
             time.sleep(2)
             
             if not self.load_calibration():
@@ -75,6 +85,37 @@ class Chassis:
             print(f"[CHASSIS] BNO085 init failed: {e}. Will fallback to basic movement.")
             self.has_imu = False
 
+        # ---------------------------------------------------------
+        # INA226 BATTERY MONITOR SETUP 
+        # ---------------------------------------------------------
+        try:
+            self.bat_alert = DigitalInOut(board.D6)
+            self.bat_alert.direction = Direction.INPUT
+            self.bat_alert.pull = Pull.UP
+
+            self.ina = INA226(busnum=1, max_expected_amps=8, shunt_ohms=0.01, address=0x40)
+            self.ina.configure()
+            self.has_ina = True
+            print("[CHASSIS] INA226 Battery Monitor Initialized on GPIO6.")
+        except Exception as e:
+            print(f"[CHASSIS] INA226 init failed: {e}")
+            self.has_ina = False
+
+    # ---------------------------------------------------------
+    # BATTERY LOGIC
+    # ---------------------------------------------------------
+    def get_battery_percentage(self, voltage):
+        """Piecewise curve for a 4S (12.8V) LiFePO4 Battery."""
+        if voltage >= 14.0: return 100
+        elif voltage >= 13.3: return 90
+        elif voltage >= 13.2: return 70
+        elif voltage >= 13.1: return 40
+        elif voltage >= 13.0: return 30
+        elif voltage >= 12.9: return 20
+        elif voltage >= 12.8: return 15
+        elif voltage >= 12.5: return 10
+        elif voltage >= 12.0: return 5
+        else: return 0
 
     # ---------------------------------------------------------
     # IMU CALIBRATION ROUTINES
@@ -197,7 +238,6 @@ class Chassis:
                     
                 return yaw
         except Exception as e:
-            # We catch hardware I2C glitches here and return None instead of 0.0
             print(f"[IMU WARNING] Sensor glitch: {e}")
             return None
 
@@ -209,20 +249,16 @@ class Chassis:
                 readings.append(h)
             time.sleep(0.010)
 
-        # If all samples glitched out, return None
         if not readings:
             return None
 
-        # Convert to unit vectors to handle wrap-around properly
         sin_vals = [math.sin(math.radians(r)) for r in readings]
         cos_vals = [math.cos(math.radians(r)) for r in readings]
 
-        # Compute mean vector
         sin_mean = sum(sin_vals) / len(sin_vals)
         cos_mean = sum(cos_vals) / len(cos_vals)
         mean_deg = math.degrees(math.atan2(sin_mean, cos_mean)) % 360
 
-        # Reject samples that deviate more than 20° from the mean
         filtered_sin = []
         filtered_cos = []
         for r in readings:
@@ -319,10 +355,16 @@ class Chassis:
         start_time = time.time()
         
         while (time.time() - start_time) < travel_time:
+            # --- EMERGENCY PROTECTIONS ---
             if self.is_tilted_dangerously():
                 self.stop()
                 print("\n[CHASSIS] EMERGENCY STOP: Excessive tilt detected!\n")
                 return 
+
+            if getattr(self, "has_ina", False) and not self.bat_alert.value:
+                self.stop()
+                print("\n[CHASSIS] EMERGENCY STOP: Battery Alert Triggered on GPIO6!\n")
+                return
                 
             # --- RED TAPE OVERRIDE ---
             if self.vision and self.vision.red_tape_triggered:
@@ -335,22 +377,17 @@ class Chassis:
             if self.vision and getattr(self.vision, 'target_in_response_zone', False):
                 self.stop()
                 
-                # Capture the exact trash type before we start maneuvering
                 trash_type = getattr(self.vision, 'target_class', "Unknown")
-                
                 time_driven_so_far = time.time() - start_time
                 
-                # Go do the complex pickup, sorting, and return maneuver
                 self.execute_pickup_and_return(trash_type)
                 
-                # We are back on the line! Deduct the time we already drove 
                 travel_time = travel_time - time_driven_so_far
                 start_time = time.time()
                 print(f"[CHASSIS] Resuming sweep lane. {travel_time:.2f}s remaining.")
                 
             current_heading = self.get_heading()
             
-            # Glitch skip: keep moving if sensor drops out momentarily
             if current_heading is None:
                 time.sleep(0.01)
                 continue
@@ -380,17 +417,14 @@ class Chassis:
     def execute_pickup_and_return(self, trash_type="Unknown"):
         print(f"\n[PICKUP] --- INITIATING AUTO-PICKUP for: {trash_type.upper()} ---")
         
-        # 1. SAVE THE ORIGINAL SWEEP STATE
         original_heading = self.get_heading_smoothed(samples=5)
         if original_heading is None:
             original_heading = self.get_heading() or 0.0
         print(f"[PICKUP] Saved original sweep line heading: {original_heading:.1f}°")
 
-        # Blindfold vision tape detection
         if self.vision:
             self.vision.pause_tape_detection()
 
-        # 2. ALIGN TO TRASH
         print("[PICKUP] Aligning to target...")
         align_timeout = time.time() + 5.0
         while time.time() < align_timeout:
@@ -412,7 +446,6 @@ class Chassis:
             time.sleep(0.02)
         self.stop()
 
-        # 3. APPROACH AND RECORD TIME
         print("[PICKUP] Approaching target...")
         approach_start = time.time()
         approach_timeout = approach_start + 6.0 
@@ -427,11 +460,9 @@ class Chassis:
         approach_time = time.time() - approach_start
         print(f"[PICKUP] Target reached. Forward drive took: {approach_time:.2f}s")
 
-        # 4. EXECUTE GRAB
         print("[PICKUP] *** ACTIVATING ARMS / GRABBING TRASH ***")
         time.sleep(3.0) 
         
-        # 5. SORTING DROP-OFF MANEUVER
         trash_lower = trash_type.lower()
         plastic_classes = ["general_plastic", "plastic_bottles", "plastic_bottle"]
         glass_classes = ["glass_bottle", "glass"]
@@ -465,7 +496,6 @@ class Chassis:
         else:
             print(f"[SORTING] Unknown/Unsorted item '{trash_type}'. Holding in main carriage.")
 
-        # 6. REVERSE EXACT DEVIATION
         print(f"[PICKUP] Reversing back to sweep line for {approach_time:.2f}s...")
         reverse_start = time.time()
         
@@ -479,7 +509,6 @@ class Chassis:
             time.sleep(0.02)
         self.stop()
 
-        # 7. RESTORE ORIGINAL HEADING
         print("[PICKUP] Snapping back to original sweep heading...")
         self.turn_to_absolute_heading(original_heading)
 
@@ -493,7 +522,6 @@ class Chassis:
         pitch = 0.0
         roll = 0.0
         
-        # Safely handle the string conversion if I2C glitches during a web request
         if yaw is not None:
             yaw_str = f"{round(yaw, 1)}"
         else:
@@ -519,13 +547,27 @@ class Chassis:
             except Exception:
                 pass
 
-        return {
+        telemetry = {
             "yaw": yaw_str,
             "pitch": f"{pitch}",
             "roll": f"{roll}",
             "mpu_ok": getattr(self, "has_imu", False),
             "tilt_warning": self.is_tilted_dangerously()
         }
+
+        # Inject battery stats if INA226 is connected
+        if getattr(self, "has_ina", False):
+            try:
+                # We only ask the chip for Voltage now!
+                voltage = self.ina.voltage()
+                
+                telemetry["battery_voltage"] = round(voltage, 2)
+                telemetry["battery_percent"] = self.get_battery_percentage(voltage)
+                telemetry["battery_alert"] = not self.bat_alert.value
+            except Exception as e:
+                print(f"[TELEMETRY WARNING] Failed to read INA226: {e}")
+
+        return telemetry
 
     def turn_to_absolute_heading(self, target_heading):
         if not self.has_imu:
@@ -537,7 +579,7 @@ class Chassis:
 
         DEADBAND       = 4.0
         SLOW_ZONE      = 25.0
-        MIN_TURN_SPEED = 0.35 # Motor floor to prevent stall
+        MIN_TURN_SPEED = 0.35
         MAX_TURN_SPEED = self.turn_speed
         SETTLE_READS   = 6
         TIMEOUT        = 10.0
@@ -553,7 +595,6 @@ class Chassis:
 
             current = self.get_heading_smoothed(samples=5)
             
-            # Glitch Skip
             if current is None:
                 time.sleep(0.01)
                 continue
@@ -611,7 +652,6 @@ class Chassis:
 
             current = self.get_heading_smoothed(samples=3)
             
-            # Glitch Skip
             if current is None:
                 time.sleep(0.01)
                 continue
@@ -629,7 +669,6 @@ class Chassis:
             raw_outer = OUTER_SPEED * speed_mult
             raw_inner = INNER_SPEED * speed_mult
             
-            # Absolute motor floor to prevent Errno 121 stalls
             outer = max(0.35, raw_outer)
             inner = max(0.35, raw_inner)
 
@@ -676,7 +715,6 @@ class Chassis:
             label    = "RIGHT" if use_right_turn else "LEFT"
             print(f"[SWEEP] 180° {label} arc U-turn")
             
-            # --- BLINDFOLD THE VISION SYSTEM ---
             if self.vision:
                 self.vision.pause_tape_detection()
                 
@@ -685,7 +723,6 @@ class Chassis:
             self.stop()
             time.sleep(1.0)
             
-            # --- OPEN EYES FOR THE NEXT LANE ---
             if self.vision:
                 self.vision.resume_tape_detection()
                 

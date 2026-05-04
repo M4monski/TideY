@@ -227,6 +227,22 @@ function fetchTelemetry() {
         imuLabel.innerText = 'OFFLINE/ERROR';
         imuLabel.style.color = '#f00'; // Red
       }
+
+      // --- NEW: BATTERY STATUS ---
+      const batteryLabel = document.getElementById('hud-battery');
+      if (data.battery_percent !== undefined) {
+        batteryLabel.innerText = `${data.battery_percent}% (${data.battery_voltage}V)`;
+        if (data.battery_alert) {
+          batteryLabel.style.color = '#f00'; // Red for alert
+        } else if (data.battery_percent < 20) {
+          batteryLabel.style.color = '#ff9f43'; // Orange for low
+        } else {
+          batteryLabel.style.color = '#0f0'; // Green for good
+        }
+      } else {
+        batteryLabel.innerText = 'N/A';
+        batteryLabel.style.color = '#777';
+      }
     })
     .catch((err) => console.error('Telemetry error:', err));
 }
