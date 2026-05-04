@@ -211,7 +211,7 @@ def update_response_zone():
         eyes.response_cfg['offset_x'] = int(data['offset_x'])
     if 'offset_y' in data: 
         eyes.response_cfg['offset_y'] = int(data['offset_y'])
-        
+
     # 2. Permanently save the new settings to config.json
     try:
         with open('config.json', 'r') as f:

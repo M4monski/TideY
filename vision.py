@@ -23,6 +23,7 @@ class VisionSystem:
             "bottom_width": 400, 
             "top_width": 150,    
             "height": 180,       
+            "offset_x": 0,       
             "offset_y": 120      
         })
         
@@ -156,17 +157,28 @@ class VisionSystem:
                             core_top = y1 + (box_height * 0.25)
                             core_bottom = y2 - (box_height * 0.25)
                             
-                            # Calculate zone boundaries based on your existing config math
-                            resp_base_y = (360 // 2) + self.response_cfg["offset_y"]
-                            resp_top_y = resp_base_y - self.response_cfg["height"]
-                            
                             grab_center_y = (360 - (self.zone_cfg["height"] // 2)) + self.zone_cfg["offset_y"]
                             grab_top_y = grab_center_y - (self.zone_cfg["height"] // 2)
                             grab_bottom_y = grab_center_y + (self.zone_cfg["height"] // 2)
 
-                            # If the bottom of the trash is inside the response zone
-                            if resp_top_y < y2 < resp_base_y:
-                                self.target_in_response_zone = True
+                            # --- Trapezoidal Response Zone Check ---
+                            rz_h = self.response_cfg["height"]
+                            rz_oy = self.response_cfg["offset_y"]
+                            rz_base_y = (360 // 2) + rz_oy
+                            rz_top_y = rz_base_y - rz_h
+
+                            # First, check if the bottom of the box is vertically within the zone
+                            if rz_top_y < y2 < rz_base_y:
+                                # Interpolate the width of the trapezoid at the box's y2 coordinate
+                                rz_bw = self.response_cfg["bottom_width"]
+                                rz_tw = self.response_cfg["top_width"]
+                                rz_ox = self.response_cfg.get("offset_x", 0)
+                                rz_center_x = (640 // 2) + rz_ox
+                                
+                                y_ratio = (y2 - rz_top_y) / rz_h
+                                current_width = rz_tw + y_ratio * (rz_bw - rz_tw)
+                                if abs(best_x - rz_center_x) < (current_width / 2):
+                                    self.target_in_response_zone = True
                                 
                             # If the bottom of the trash touches the grab zone
                             if grab_top_y < y2 < grab_bottom_y:
@@ -211,20 +223,21 @@ class VisionSystem:
                     top_y = np.min(box_points[:, 1])
                     left_x = np.min(box_points[:, 0])
                     cv2.putText(annotated_frame, "GRAB ZONE", (left_x, top_y - 8), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 2)
-
-                    # Draw Response Zone
+                    
+                    # Draw Response Zone (Trapezoid)
                     rbw = self.response_cfg["bottom_width"]
                     rtw = self.response_cfg["top_width"]
                     rh = self.response_cfg["height"]
+                    rox = self.response_cfg.get("offset_x", 0)
                     base_y = (360 // 2) + self.response_cfg["offset_y"]
+                    base_center_x = (640 // 2) + rox
                     resp_top_y = base_y - rh
                     bottom_left = (base_center_x - (rbw // 2), base_y)
                     bottom_right = (base_center_x + (rbw // 2), base_y)
                     top_left = (base_center_x - (rtw // 2), resp_top_y)
                     top_right = (base_center_x + (rtw // 2), resp_top_y)
-                    cv2.line(annotated_frame, bottom_left, top_left, (255, 0, 0), 2)
-                    cv2.line(annotated_frame, bottom_right, top_right, (255, 0, 0), 2)
-                    cv2.line(annotated_frame, top_left, top_right, (255, 0, 0), 2)
+                    pts = np.array([top_left, top_right, bottom_right, bottom_left], np.int32)
+                    cv2.polylines(annotated_frame, [pts.reshape((-1, 1, 2))], True, (255, 0, 0), 2)
                     cv2.putText(annotated_frame, "RESPONSE ZONE", (top_left[0], resp_top_y - 8), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 0), 2)
 
                     # --- Draw the Rotated Rectangular Tape Zone ---

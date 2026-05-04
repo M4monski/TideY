@@ -32,11 +32,15 @@
       "angle": 0
     },
     "response_zone": {
-      "bottom_width": 200,
-      "top_width": 300,
+      "bottom_width": 300,
+      "top_width": 500,
       "height": 200,
       "offset_y": 180,
-      "offset_x": -90
+      "offset_x": 0,
+      "left": 151,
+      "right": 533,
+      "top": 177,
+      "bottom": 338
     },
     "red_tape_zone": {
       "left": 152,

@@ -358,6 +358,18 @@
       cursor: pointer;
     }
 
+    /* --- NEW: Input Groups for Zone Tuning --- */
+    .input-group { margin-bottom: 8px; }
+    .input-group label {
+      display: block;
+      font-size: 10px;
+      font-family: 'JetBrains Mono', monospace;
+      color: var(--text-muted);
+      letter-spacing: 1px;
+      text-transform: uppercase;
+      margin-bottom: 4px;
+    }
+
     /* ─── ZONE TOGGLE ────────────────────────────── */
     .zone-toggle { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-bottom: 12px; }
 
@@ -533,6 +545,26 @@
         <input type="number" id="rz_h"  class="dist-input" placeholder="Height (px)" value="{{ response_zone.height }}" />
         <input type="number" id="rz_x"  class="dist-input" placeholder="X Offset (+ = Right)" value="{{ response_zone.offset_x }}" />
         <input type="number" id="rz_y"  class="dist-input" placeholder="Y Offset (+ = Down)" value="{{ response_zone.offset_y }}" />
+        <div class="input-group">
+          <label>Bottom Width</label>
+          <input type="number" id="rz_bw" class="dist-input" placeholder="Bottom Width (px)" value="{{ response_zone.bottom_width }}" />
+        </div>
+        <div class="input-group">
+          <label>Top Width</label>
+          <input type="number" id="rz_tw" class="dist-input" placeholder="Top Width (px)" value="{{ response_zone.top_width }}" />
+        </div>
+        <div class="input-group">
+          <label>Height</label>
+          <input type="number" id="rz_h"  class="dist-input" placeholder="Height (px)" value="{{ response_zone.height }}" />
+        </div>
+        <div class="input-group">
+          <label>X Offset</label>
+          <input type="number" id="rz_x"  class="dist-input" placeholder="X Offset (+ = Right)" value="{{ response_zone.offset_x }}" />
+        </div>
+        <div class="input-group">
+          <label>Y Offset</label>
+          <input type="number" id="rz_y"  class="dist-input" placeholder="Y Offset (+ = Down)" value="{{ response_zone.offset_y }}" />
+        </div>
       </div>
       <div id="grabZoneInputs" style="display:none">
         <div class="section-label" style="margin-bottom:8px">Grab Zone</div>
@@ -541,6 +573,11 @@
         <input type="number" id="gz_x" class="dist-input" placeholder="X Offset (+ = Right)" value="{{ grab_zone.offset_x }}" />
         <input type="number" id="gz_y" class="dist-input" placeholder="Y Offset (+ = Down)" value="{{ grab_zone.offset_y }}" />
         <input type="number" id="gz_a" class="dist-input" placeholder="Angle (°)" value="{{ grab_zone.angle }}" />
+        <div class="input-group"><label>Width</label><input type="number" id="gz_w" class="dist-input" placeholder="Width (px)" value="{{ grab_zone.width }}" /></div>
+        <div class="input-group"><label>Height</label><input type="number" id="gz_h" class="dist-input" placeholder="Height (px)" value="{{ grab_zone.height }}" /></div>
+        <div class="input-group"><label>X Offset</label><input type="number" id="gz_x" class="dist-input" placeholder="X Offset (+ = Right)" value="{{ grab_zone.offset_x }}" /></div>
+        <div class="input-group"><label>Y Offset</label><input type="number" id="gz_y" class="dist-input" placeholder="Y Offset (+ = Down)" value="{{ grab_zone.offset_y }}" /></div>
+        <div class="input-group"><label>Angle</label><input type="number" id="gz_a" class="dist-input" placeholder="Angle (°)" value="{{ grab_zone.angle }}" /></div>
       </div>
       <button class="btn btn-cyan" style="margin-top:4px" onclick="updateActiveZone()">Update Live Zone</button>
     </div>

@@ -174,7 +174,7 @@ function updateResponseZone() {
     bottom_width: document.getElementById('rz_bw').value,
     top_width: document.getElementById('rz_tw').value,
     height: document.getElementById('rz_h').value,
-    offset_x: document.getElementById('rz_x').value, // <--- Add this line
+    offset_x: document.getElementById('rz_x').value,
     offset_y: document.getElementById('rz_y').value,
   };
 
