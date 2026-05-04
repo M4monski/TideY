@@ -558,7 +558,6 @@ class Chassis:
         # Inject battery stats if INA226 is connected
         if getattr(self, "has_ina", False):
             try:
-                # We only ask the chip for Voltage now!
                 voltage = self.ina.voltage()
                 
                 telemetry["battery_voltage"] = round(voltage, 2)
@@ -632,15 +631,20 @@ class Chassis:
         target_heading = target_heading % 360
 
         OUTER_SPEED = self.base_speed
-        INNER_SPEED = self.base_speed * 0.4 
-
-        SLOW_ZONE      = 30.0 
-        MIN_SPEED_MULT = 0.45 
+        INNER_SPEED = self.base_speed * 0.4
 
         DEADBAND = 5.0
         TIMEOUT  = 20.0
 
         print(f"[CHASSIS] Arc U-turn -> {target_heading:.1f}° ({'RIGHT' if turn_deg < 0 else 'LEFT'})")
+
+        # Pre-compute fixed speeds with trim applied, clamped once before the loop
+        if turn_deg < 0:  # Right arc: left wheel is outer, right wheel is inner
+            outer = max(0.35, OUTER_SPEED * self.left_trim)
+            inner = max(0.35, INNER_SPEED * self.right_trim)
+        else:             # Left arc: right wheel is outer, left wheel is inner
+            outer = max(0.35, OUTER_SPEED * self.right_trim)
+            inner = max(0.35, INNER_SPEED * self.left_trim)
 
         start_time = time.time()
 
@@ -651,11 +655,11 @@ class Chassis:
                 break
 
             current = self.get_heading_smoothed(samples=3)
-            
+
             if current is None:
                 time.sleep(0.01)
                 continue
-                
+
             error = (target_heading - current + 540) % 360 - 180
 
             if abs(error) < DEADBAND:
@@ -663,21 +667,12 @@ class Chassis:
                 time.sleep(0.05)
                 break
 
-            t = min(abs(error) / SLOW_ZONE, 1.0)
-            speed_mult = MIN_SPEED_MULT + t * (1.0 - MIN_SPEED_MULT)
-
-            raw_outer = OUTER_SPEED * speed_mult
-            raw_inner = INNER_SPEED * speed_mult
-            
-            outer = max(0.35, raw_outer)
-            inner = max(0.35, raw_inner)
-
-            if turn_deg < 0:
-                self.motor_left.forward(outer * self.left_trim)
-                self.motor_right.backward(inner * self.right_trim)
-            else:
-                self.motor_left.forward(inner * self.left_trim)
-                self.motor_right.backward(outer * self.right_trim)
+            if turn_deg < 0:  # Right arc
+                self.motor_left.forward(outer)
+                self.motor_right.backward(inner)
+            else:             # Left arc
+                self.motor_left.forward(inner)
+                self.motor_right.backward(outer)
 
             time.sleep(0.02)
 
