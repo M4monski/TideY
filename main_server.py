@@ -331,24 +331,27 @@ def tracking_loop():
                         print(f"[AUTO] Target locked! Class: {t_class} | Orientation: {t_orient.upper()}. Initiating Sequence.")
                         
                         tracking_active = False 
-                        
-                        # --- FULL AUTONOMOUS SEQUENCE RUNNER ---
+                        # Update this section in main_server.py
                         def auto_pickup_and_drop(orientation, trash_class):
                             # 1. Execute Pickup
                             robot_arm.pickup_sequence(orientation)
                             
-                            # 2. Determine Drop Zone based on class
-                            if trash_class == 'glass_bottle':
+                            # Normalize the string to lowercase for easier comparison
+                            safe_class = trash_class.lower() 
+                            
+                            # 2. Determine Drop Zone based on your specific class names
+                            if safe_class == 'glass_bottles':
                                 zone = 'r'
-                            elif trash_class in ['general_plastic', 'plastic_bottle']:
+                            elif safe_class in ['general_plastic', 'plastic_bottles']:
                                 zone = 'l'
                             else:
-                                zone = 'c' # Fallback to center if unknown
+                                # Fallback to center if the class is unknown or Red_Tape
+                                zone = 'c' 
                                 
                             # 3. Execute Drop Off
                             robot_arm.return_sequence(zone)
-                            print("[AUTO] Drop sequence complete. Ready.")
-                            
+                            print(f"[AUTO] Dropped {trash_class} in zone: {zone}")
+                                                    
                         # Run the combined sequence in the background thread
                         threading.Thread(target=auto_pickup_and_drop, args=(t_orient, t_class)).start()
                     else:

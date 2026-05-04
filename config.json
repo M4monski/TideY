@@ -26,9 +26,9 @@
     "model_path": "best.pt",
     "grab_zone": {
       "width": 120,
-      "height": 90,
-      "offset_x": -30,
-      "offset_y": -85,
+      "height": 120,
+      "offset_x": -75,
+      "offset_y": -30,
       "angle": 0
     },
     "response_zone": {
@@ -36,7 +36,7 @@
       "top_width": 300,
       "height": 200,
       "offset_y": 180,
-      "offset_x": -50
+      "offset_x": -90
     },
     "red_tape_zone": {
       "left": 152,

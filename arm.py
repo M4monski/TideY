@@ -17,7 +17,7 @@ class RoboticArm:
             "elbow": 4,
             "wpitch": 6,
             "wroll": 8,
-            "gripper": 10
+            "gripper": 12
         }
 
         self.tick_min = 150
@@ -102,7 +102,7 @@ class RoboticArm:
         time.sleep(self.pause_time)
         self.smooth_move("wroll", target_wroll)
         time.sleep(self.pause_time)
-        self.smooth_move("shoulder", 90)
+        self.smooth_move("shoulder", 87)
         time.sleep(self.pause_time)
         self.smooth_move("elbow", 50)
         time.sleep(self.pause_time)
