@@ -27,7 +27,7 @@ class Chassis:
         self.motor_left = Motor(forward=left_pins[0], backward=left_pins[1])
         self.motor_right = Motor(forward=right_pins[0], backward=right_pins[1])
         
-        self.base_speed = config.get("speed", 0.7)
+        self.base_speed = config.get("speed", 0.9)
         self.turn_speed = config.get("turn_speed", 0.8)
         
         self.left_trim = 1.0  
@@ -627,58 +627,111 @@ class Chassis:
         if final_heading is not None:
             print(f"[CHASSIS] Turn complete. Final Heading: {final_heading:.2f}\n")
 
-    def arc_turn_to_heading(self, target_heading, turn_deg):
-        target_heading = target_heading % 360
+    def _skid_turn_to(self, target_heading, timeout=12.0):
+        """Skid-steer to an absolute heading. Returns True on success, False on timeout."""
+        DEADBAND          = 5.0
+        SETTLE_READS      = 4
+        TURN_SPEED        = self.turn_speed
+        MAX_HEADING_JUMP  = 40.0  # degrees — rejects EMI-induced sensor spikes
 
-        OUTER_SPEED = self.base_speed
-        INNER_SPEED = self.base_speed * 0.4
-
-        DEADBAND = 5.0
-        TIMEOUT  = 20.0
-
-        print(f"[CHASSIS] Arc U-turn -> {target_heading:.1f}° ({'RIGHT' if turn_deg < 0 else 'LEFT'})")
-
-        # Pre-compute fixed speeds with trim applied, clamped once before the loop
-        if turn_deg < 0:  # Right arc: left wheel is outer, right wheel is inner
-            outer = max(0.35, OUTER_SPEED * self.left_trim)
-            inner = max(0.35, INNER_SPEED * self.right_trim)
-        else:             # Left arc: right wheel is outer, left wheel is inner
-            outer = max(0.35, OUTER_SPEED * self.right_trim)
-            inner = max(0.35, INNER_SPEED * self.left_trim)
-
+        settled    = 0
         start_time = time.time()
+        last_valid = None
 
         while True:
-            if time.time() - start_time > TIMEOUT:
+            if time.time() - start_time > timeout:
                 self.stop()
-                print("[CHASSIS] Arc turn timeout -- stopping.")
-                break
+                return False
 
             current = self.get_heading_smoothed(samples=3)
-
             if current is None:
                 time.sleep(0.01)
                 continue
+
+            if last_valid is not None:
+                jump = abs((current - last_valid + 540) % 360 - 180)
+                if jump > MAX_HEADING_JUMP:
+                    print(f"[IMU GLITCH] {last_valid:.1f}° -> {current:.1f}° ({jump:.1f}° jump) -- stopping to recalibrate")
+                    self.stop()
+                    time.sleep(0.3)
+                    recal = self.get_heading_smoothed(samples=10)
+                    if recal is not None:
+                        print(f"[IMU RECAL] Settled at {recal:.1f}° -- resuming turn to {target_heading:.1f}°")
+                        last_valid = recal
+                    else:
+                        print("[IMU RECAL] Could not get stable reading -- retrying next tick")
+                    continue
+            last_valid = current
 
             error = (target_heading - current + 540) % 360 - 180
 
             if abs(error) < DEADBAND:
                 self.stop()
                 time.sleep(0.05)
-                break
+                settled += 1
+                if settled >= SETTLE_READS:
+                    return True
+                time.sleep(0.02)
+                continue
+            else:
+                settled = 0
 
-            if turn_deg < 0:  # Right arc
-                self.motor_left.forward(outer)
-                self.motor_right.backward(inner)
-            else:             # Left arc
-                self.motor_left.forward(inner)
-                self.motor_right.backward(outer)
+            if error > 0:
+                self.motor_left.backward(TURN_SPEED)
+                self.motor_right.backward(TURN_SPEED)
+            else:
+                self.motor_left.forward(TURN_SPEED)
+                self.motor_right.forward(TURN_SPEED)
 
+            time.sleep(0.01)
+
+    def arc_turn_to_heading(self, target_heading, turn_deg):
+        target_heading = target_heading % 360
+        FORWARD_TIME   = 2.5
+
+        direction = "RIGHT" if turn_deg < 0 else "LEFT"
+        print(f"[CHASSIS] Skid U-turn -> {target_heading:.1f}° ({direction})")
+
+        current = self.get_heading_smoothed(samples=5)
+        if current is None:
+            current = self.get_heading() or 0.0
+
+        mid_offset  = -90.0 if turn_deg < 0 else +90.0
+        mid_heading = (current + mid_offset) % 360
+
+        # Phase 1: first 90° skid turn
+        print(f"[CHASSIS] Phase 1: Skid turn to {mid_heading:.1f}°")
+        if not self._skid_turn_to(mid_heading):
+            print("[CHASSIS] Phase 1 timeout -- aborting U-turn.")
+            return None
+
+        # Phase 2: drive forward to form the "_" base of the U
+        print(f"[CHASSIS] Phase 2: Forward drive {FORWARD_TIME:.1f}s")
+        drive_start = time.time()
+        while time.time() - drive_start < FORWARD_TIME:
+            self.motor_left.forward(self.speed_left)
+            self.motor_right.backward(self.speed_right)
             time.sleep(0.02)
+        self.stop()
+        time.sleep(0.3)
+
+        # Recalibrate IMU before Phase 3 so error is computed from a fresh, settled reading
+        print("[CHASSIS] Recalibrating IMU heading before Phase 3...")
+        recal = self.get_heading_smoothed(samples=10)
+        if recal is not None:
+            print(f"[CHASSIS] IMU settled at {recal:.1f}° | target: {target_heading:.1f}°")
+        else:
+            print("[CHASSIS] IMU recal returned None -- proceeding anyway.")
+
+        # Phase 3: second 90° skid turn to reach target heading
+        print(f"[CHASSIS] Phase 3: Skid turn to {target_heading:.1f}°")
+        if not self._skid_turn_to(target_heading):
+            print("[CHASSIS] Phase 3 timeout -- aborting U-turn.")
+            return None
 
         final = self.get_heading_smoothed()
         if final is not None:
-            print(f"[CHASSIS] Arc turn complete. Final heading: {final:.1f}°")
+            print(f"[CHASSIS] U-turn complete. Final heading: {final:.1f}°")
         return final
 
     def sweep_area(self, grid_size_cm):
