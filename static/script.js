@@ -1,3 +1,11 @@
+// Tab switching
+function switchTab(name, btn) {
+  document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+  document.getElementById('tab-' + name).classList.add('active');
+  btn.classList.add('active');
+}
+
 // Send hardware commands to the Flask Server
 function sendCommand(subsystem, action) {
   fetch(`/cmd/${subsystem}/${action}`, { method: 'POST' }).catch((err) =>
@@ -33,7 +41,7 @@ function takePhoto() {
         btn.disabled = false;
       }
     })
-    .catch((err) => {
+    .catch(() => {
       alert('Error taking photo!');
       btn.innerHTML = '📸 SNAP HIGH-RES TARGET';
       btn.disabled = false;
@@ -98,18 +106,23 @@ function sendDistanceMove(direction) {
 
 // Send the sweep sequence command
 function sendSweep() {
-  const distInput = document.getElementById('distanceInput').value;
+  const distInput = document.getElementById('distanceInput').value.trim();
   const grid_size = parseFloat(distInput);
+  const hasDistance = distInput !== '' && !isNaN(grid_size) && grid_size >= 20;
 
-  if (isNaN(grid_size) || grid_size < 20) {
-    alert('Please enter a valid grid size (minimum 20cm).');
+  if (distInput !== '' && (isNaN(grid_size) || grid_size < 20)) {
+    alert('Grid size must be at least 20 cm, or leave blank to run until boundary.');
     return;
   }
+
+  const payload = hasDistance
+    ? { distance: grid_size }
+    : { boundary_mode: true };
 
   fetch('/cmd/chassis/sweep', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ distance: grid_size }),
+    body: JSON.stringify(payload),
   }).catch((err) => console.error('Error sending sweep move:', err));
 
   document.getElementById('distanceInput').value = '';
@@ -151,13 +164,13 @@ function switchZone(zone) {
   if (zone === 'response') {
     rzInputs.style.display = 'block';
     gzInputs.style.display = 'none';
-    btnRz.className = 'arm-btn bg-blue';
-    btnGz.className = 'arm-btn bg-grey';
+    btnRz.className = 'btn btn-blue';
+    btnGz.className = 'btn btn-grey';
   } else {
     rzInputs.style.display = 'none';
     gzInputs.style.display = 'block';
-    btnRz.className = 'arm-btn bg-grey';
-    btnGz.className = 'arm-btn bg-blue';
+    btnRz.className = 'btn btn-grey';
+    btnGz.className = 'btn btn-blue';
   }
 }
 
@@ -249,6 +262,145 @@ function fetchTelemetry() {
 
 // Start the loop! Updates twice a second.
 setInterval(fetchTelemetry, 500);
+
+// --- BIN VOLUME ---
+function fetchBinVolumes() {
+  fetch('/api/bin_volumes')
+    .then((r) => r.json())
+    .then((data) => {
+      const p = Math.min(100, data.plastic || 0);
+      const g = Math.min(100, data.glass   || 0);
+      document.getElementById('plastic-pct').innerText = p.toFixed(1) + '%';
+      document.getElementById('glass-pct').innerText   = g.toFixed(1) + '%';
+      document.getElementById('plastic-bar').style.width = p + '%';
+      document.getElementById('glass-bar').style.width   = g + '%';
+
+      const pBar = document.getElementById('plastic-bar');
+      pBar.style.background = p >= 90 ? 'var(--red)' : p >= 70 ? 'var(--amber)' : 'var(--cyan)';
+
+      const gBar = document.getElementById('glass-bar');
+      gBar.style.background = g >= 90 ? 'var(--red)' : g >= 70 ? 'var(--yellow)' : 'var(--amber)';
+    })
+    .catch((err) => console.error('Bin volume error:', err));
+}
+
+function resetBin(bin) {
+  fetch('/api/bin_volumes/reset', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ bin: bin }),
+  })
+    .then(() => fetchBinVolumes())
+    .catch((err) => console.error('Reset error:', err));
+}
+
+function testSMS() {
+  const btn = document.getElementById('testSmsBtn');
+  const status = document.getElementById('testSmsStatus');
+  btn.disabled = true;
+  btn.innerText = '⏳ Sending…';
+  status.innerText = '';
+  fetch('/api/test_sms', { method: 'POST' })
+    .then((r) => r.json())
+    .then((d) => {
+      if (d.status === 'sent') {
+        btn.innerText = '✅ SMS Sent!';
+        status.innerText = 'Check your phone (09398840532)';
+        status.style.color = 'var(--green)';
+      } else {
+        btn.innerText = '❌ Send Failed';
+        status.innerText = 'Check PhilSMS token in config.json';
+        status.style.color = 'var(--red)';
+      }
+      setTimeout(() => {
+        btn.innerText = '📱 Send Test SMS';
+        btn.disabled = false;
+        status.innerText = '';
+      }, 4000);
+    })
+    .catch(() => {
+      btn.innerText = '❌ Error';
+      btn.disabled = false;
+    });
+}
+
+fetchBinVolumes();
+setInterval(fetchBinVolumes, 3000);
+// ------------------
+
+// --- WEATHER & TIDE ---
+function fetchWeather() {
+  fetch('/api/weather')
+    .then((r) => r.json())
+    .then((d) => {
+      const cur = d.current  || {};
+      const fh  = d.forecast_1h || {};
+      const tide = d.tide    || {};
+      const warn = d.warnings || {};
+
+      // -- Current conditions --
+      document.getElementById('wx-label').innerText =
+        cur.weather_label || '--';
+      document.getElementById('wx-label').style.color =
+        warn.rain ? 'var(--red)' : warn.bad_weather ? 'var(--amber)' : 'var(--green)';
+
+      document.getElementById('wx-temp').innerText =
+        cur.temperature != null ? cur.temperature.toFixed(1) + '°C' : '--';
+      document.getElementById('wx-humidity').innerText =
+        cur.humidity != null ? cur.humidity + '%' : '--';
+      document.getElementById('wx-rain').innerText =
+        cur.rain != null ? cur.rain.toFixed(1) + ' mm' : '--';
+      document.getElementById('wx-rain').style.color =
+        cur.rain > 0 ? 'var(--red)' : 'var(--cyan)';
+      document.getElementById('wx-wind').innerText =
+        cur.wind_speed != null ? cur.wind_speed.toFixed(0) + ' km/h' : '--';
+
+      // -- Next-hour forecast --
+      document.getElementById('fh-label').innerText =
+        fh.weather_label || '--';
+      document.getElementById('fh-prob').innerText =
+        fh.precipitation_prob != null ? fh.precipitation_prob + '% chance of rain' : '--';
+      document.getElementById('fh-prob').style.color =
+        (fh.precipitation_prob || 0) >= 60 ? 'var(--amber)' : 'var(--cyan)';
+      document.getElementById('fh-rain').innerText =
+        fh.rain != null ? 'Expected rain: ' + fh.rain.toFixed(1) + ' mm' : 'Expected rain: --';
+
+      // -- Tide --
+      if (tide.enabled) {
+        document.getElementById('tide-status').innerText =
+          tide.is_peak ? '🌊 PEAK HIGH TIDE NOW' : 'Normal';
+        document.getElementById('tide-status').style.color =
+          tide.is_peak ? 'var(--amber)' : 'var(--green)';
+        document.getElementById('tide-next').innerText =
+          tide.next_high_in_min != null
+            ? `Next high tide in ${tide.next_high_in_min} min  (${tide.next_high_height}m)`
+            : 'Next high tide: --';
+      } else {
+        document.getElementById('tide-status').innerText = 'Tide API not configured';
+        document.getElementById('tide-status').style.color = 'var(--text-muted)';
+        document.getElementById('tide-next').innerText = 'Add worldtides_api_key to config.json';
+      }
+
+      // -- Overlay warnings on video feed --
+      const rainOverlay  = document.getElementById('overlay-rain');
+      const tideOverlay  = document.getElementById('overlay-tide');
+      const badwxOverlay = document.getElementById('overlay-badwx');
+
+      rainOverlay.style.display  = warn.rain      ? 'block' : 'none';
+      tideOverlay.style.display  = (!warn.rain && warn.peak_tide)  ? 'block' : 'none';
+      badwxOverlay.style.display = (!warn.rain && !warn.peak_tide && warn.bad_weather) ? 'block' : 'none';
+
+      // -- Updated time --
+      if (d.last_updated) {
+        document.getElementById('wx-updated').innerText = 'Updated: ' + d.last_updated;
+      }
+    })
+    .catch((err) => console.error('Weather fetch error:', err));
+}
+
+fetchWeather();
+setInterval(fetchWeather, 30000);
+// ----------------------
 
 // --- UPDATED: RECTANGULAR RED TAPE BOUNDARY ---
 // --- UPDATED: ROTATED RECTANGULAR RED TAPE BOUNDARY ---

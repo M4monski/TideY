@@ -4,6 +4,8 @@ import os
 import time
 import threading
 import json
+import requests as http_requests
+from datetime import datetime, timezone, timedelta
 from flask import jsonify
 from flask import Flask, render_template, Response, send_from_directory, jsonify, request
 
@@ -15,6 +17,299 @@ from vision import VisionSystem
 # --- GLOBAL STATUS ---
 robot_status = "Idle"
 # ---------------------
+
+# --- BIN VOLUME TRACKING ---
+BIN_VOLUME_FILE = "bin_volumes.json"
+BIN_VOLUME_INCREMENTS = {
+    "general_plastic":  1,   # +1% per pickup
+    "plastic_bottles":  7,   # +7% per pickup
+    "glass_bottles":    8,   # +8% per pickup
+}
+
+def _load_bin_volumes():
+    if os.path.exists(BIN_VOLUME_FILE):
+        try:
+            with open(BIN_VOLUME_FILE, 'r') as f:
+                return json.load(f)
+        except Exception:
+            pass
+    return {"plastic": 0.0, "glass": 0.0}
+
+def _save_bin_volumes(volumes):
+    with open(BIN_VOLUME_FILE, 'w') as f:
+        json.dump(volumes, f, indent=2)
+
+bin_volumes = _load_bin_volumes()
+
+def record_bin_pickup(trash_class):
+    """Adds the appropriate volume percentage to the correct bin after a successful pickup."""
+    safe = trash_class.lower()
+    increment = BIN_VOLUME_INCREMENTS.get(safe, 0)
+    if increment == 0:
+        return
+    if safe == "glass_bottles":
+        bin_volumes["glass"] = min(100.0, bin_volumes["glass"] + increment)
+        _check_bin_alert("glass", bin_volumes["glass"])
+    else:
+        bin_volumes["plastic"] = min(100.0, bin_volumes["plastic"] + increment)
+        _check_bin_alert("plastic", bin_volumes["plastic"])
+    _save_bin_volumes(bin_volumes)
+    print(f"[BIN] {trash_class} -> +{increment}% | Plastic: {bin_volumes['plastic']:.1f}% | Glass: {bin_volumes['glass']:.1f}%")
+# ---------------------------
+
+# --- SMS ALERT SYSTEM (PhilSMS) ---
+SMS_ALERT_THRESHOLD  = 90.0   # bin % that triggers a text
+SMS_COOLDOWN_SECONDS = 60     # max 1 message per minute per alert type
+
+_sms_last_sent = {"plastic": 0.0, "glass": 0.0}  # epoch timestamps
+
+def _to_ph_intl(phone: str) -> str:
+    """Converts 09xxxxxxxxx → 639xxxxxxxxx as required by PhilSMS."""
+    phone = phone.strip()
+    if phone.startswith("0"):
+        return "63" + phone[1:]
+    if phone.startswith("+"):
+        return phone[1:]
+    return phone
+
+def _send_sms(message: str, sms_cfg: dict) -> bool:
+    """Sends an SMS via PhilSMS (dashboard.philsms.com)."""
+    token = sms_cfg.get("philsms_token", "")
+    phone = sms_cfg.get("phone", "")
+
+    if not token or not phone:
+        print("[NOTIFY] PhilSMS token or phone not configured — skipping.")
+        return False
+
+    recipient = _to_ph_intl(phone)
+
+    try:
+        resp = http_requests.post(
+            "https://dashboard.philsms.com/api/v3/sms/send",
+            headers={
+                "Authorization": f"Bearer {token}",
+                "Content-Type":  "application/json",
+                "Accept":        "application/json",
+            },
+            json={
+                "recipient": recipient,
+                "sender_id": "PhilSMS",
+                "type":      "plain",
+                "message":   message,
+            },
+            timeout=15,
+        )
+        data = resp.json()
+        if resp.status_code == 200 and data.get("status") == "success":
+            print(f"[NOTIFY] PhilSMS sent OK to {recipient}: {message[:60]}...")
+            return True
+        else:
+            print(f"[NOTIFY] PhilSMS failed ({resp.status_code}): {data}")
+            return False
+    except Exception as e:
+        print(f"[NOTIFY] Request error: {e}")
+        return False
+
+def _check_bin_alert(bin_name: str, current_pct: float):
+    """Fires an SMS alert if the bin crossed 90% and the cooldown has passed."""
+    global _sms_last_sent
+
+    if current_pct < SMS_ALERT_THRESHOLD:
+        return
+
+    now = time.time()
+    if (now - _sms_last_sent[bin_name]) < SMS_COOLDOWN_SECONDS:
+        return  # still within the 5-minute cooldown
+
+    bin_label    = "Plastic Bin (Left)"  if bin_name == "plastic" else "Glass Bin (Right)"
+    other_name   = "glass"               if bin_name == "plastic" else "plastic"
+    other_pct    = bin_volumes.get(other_name, 0.0)
+    other_label  = "Glass Bin (Right)"   if bin_name == "plastic" else "Plastic Bin (Left)"
+
+    message = (
+        f"[TIDEY ALERT] {bin_label} is {current_pct:.1f}% full — please empty it soon!\n"
+        f"Other bin: {other_label} at {other_pct:.1f}%."
+    )
+
+    try:
+        with open('config.json', 'r') as f:
+            sms_cfg = json.load(f).get("sms", {})
+    except Exception:
+        sms_cfg = {}
+
+    if _send_sms(message, sms_cfg):
+        _sms_last_sent[bin_name] = now
+# ------------------------
+
+# --- WEATHER & TIDE MONITOR ---
+# OWM weather IDs: 2xx=thunderstorm, 3xx=drizzle, 5xx=rain, 7xx=atmosphere, 800=clear, 80x=clouds
+_RAIN_IDS    = set(range(200, 322)) | set(range(500, 532))
+_BAD_WX_IDS  = set(range(200, 782))
+_PH_TZ       = timezone(timedelta(hours=8))
+
+live_weather = {
+    "current":      {},
+    "forecast_1h":  {},
+    "tide":         {"is_peak": False, "next_high_in_min": None, "next_high_height": None, "enabled": False},
+    "warnings":     {"rain": False, "bad_weather": False, "peak_tide": False},
+    "last_updated": None,
+}
+_rain_alert_sent_at = 0.0
+_tide_cache         = None
+_tide_cache_time    = 0.0
+
+def _fetch_owm_current(lat, lon, api_key):
+    try:
+        r = http_requests.get(
+            "https://api.openweathermap.org/data/2.5/weather",
+            params={"lat": lat, "lon": lon, "appid": api_key, "units": "metric"},
+            timeout=15,
+        )
+        return r.json() if r.status_code == 200 else None
+    except Exception as e:
+        print(f"[WEATHER] OWM current error: {e}")
+        return None
+
+def _fetch_owm_forecast(lat, lon, api_key):
+    try:
+        r = http_requests.get(
+            "https://api.openweathermap.org/data/2.5/forecast",
+            params={"lat": lat, "lon": lon, "appid": api_key, "units": "metric", "cnt": 3},
+            timeout=15,
+        )
+        return r.json() if r.status_code == 200 else None
+    except Exception as e:
+        print(f"[WEATHER] OWM forecast error: {e}")
+        return None
+
+def _fetch_stormglass_tides(lat, lon, api_key):
+    try:
+        r = http_requests.get(
+            "https://api.stormglass.io/v2/tide/extremes/point",
+            params={"lat": lat, "lng": lon},
+            headers={"Authorization": api_key},
+            timeout=15,
+        )
+        return r.json() if r.status_code == 200 else None
+    except Exception as e:
+        print(f"[TIDE] Stormglass error: {e}")
+        return None
+
+def _check_rain_alert(cond):
+    global _rain_alert_sent_at
+    now = time.time()
+    if (now - _rain_alert_sent_at) < SMS_COOLDOWN_SECONDS:
+        return
+    try:
+        with open('config.json', 'r') as f:
+            sms_cfg = json.load(f).get("sms", {})
+    except Exception:
+        sms_cfg = {}
+    msg = (
+        f"⛈ TIDEY RAIN ALERT\n"
+        f"Condition: {cond.get('weather_label', 'Rain')}\n"
+        f"Rain: {cond.get('rain', 0):.1f}mm  |  Wind: {cond.get('wind_speed', 0):.0f} km/h\n"
+        f"STOP the test now and bring TIDEY to shelter!"
+    )
+    if _send_sms(msg, sms_cfg):
+        _rain_alert_sent_at = now
+
+def _weather_monitor_loop():
+    global live_weather, _tide_cache, _tide_cache_time
+    while True:
+        try:
+            with open('config.json', 'r') as f:
+                cfg = json.load(f)
+            loc     = cfg.get("location", {"lat": 10.9000, "lon": 123.8928})
+            wx_cfg  = cfg.get("weather", {})
+            owm_key = wx_cfg.get("owm_api_key", "")
+            sg_key  = wx_cfg.get("stormglass_api_key", "")
+            lat, lon = loc["lat"], loc["lon"]
+
+            # -- Current weather (OpenWeatherMap) --
+            if owm_key:
+                cur_data   = _fetch_owm_current(lat, lon, owm_key)
+                fcast_data = _fetch_owm_forecast(lat, lon, owm_key)
+
+                if cur_data:
+                    wx     = cur_data.get("weather", [{}])[0]
+                    wx_id  = int(wx.get("id", 800))
+                    label  = wx.get("description", "unknown").capitalize()
+                    rain   = float(cur_data.get("rain", {}).get("1h", 0))
+                    wind   = float(cur_data.get("wind", {}).get("speed", 0)) * 3.6  # m/s → km/h
+                    temp   = cur_data.get("main", {}).get("temp")
+                    humid  = cur_data.get("main", {}).get("humidity")
+                    is_rain = wx_id in _RAIN_IDS or rain > 0
+                    is_bad  = wx_id in _BAD_WX_IDS
+
+                    live_weather["current"] = {
+                        "temperature":    temp,
+                        "rain":           rain,
+                        "wind_speed":     round(wind, 1),
+                        "humidity":       humid,
+                        "weather_code":   wx_id,
+                        "weather_label":  label,
+                        "is_raining":     is_rain,
+                        "is_bad_weather": is_bad,
+                    }
+                    live_weather["warnings"]["rain"]        = is_rain
+                    live_weather["warnings"]["bad_weather"] = is_bad
+                    live_weather["last_updated"] = time.strftime("%H:%M")
+
+                    if is_rain:
+                        _check_rain_alert(live_weather["current"])
+
+                # Next 3-hour forecast slot
+                if fcast_data and fcast_data.get("list"):
+                    nxt    = fcast_data["list"][1] if len(fcast_data["list"]) > 1 else fcast_data["list"][0]
+                    fh_wx  = nxt.get("weather", [{}])[0]
+                    live_weather["forecast_1h"] = {
+                        "temperature":        nxt.get("main", {}).get("temp"),
+                        "precipitation_prob": round(nxt.get("pop", 0) * 100),
+                        "rain":               float(nxt.get("rain", {}).get("3h", 0)),
+                        "weather_label":      fh_wx.get("description", "unknown").capitalize(),
+                    }
+
+            # -- Tides (Stormglass, cached 2 h) --
+            now_ts = time.time()
+            if sg_key and (now_ts - _tide_cache_time > 7200 or _tide_cache is None):
+                _tide_cache      = _fetch_stormglass_tides(lat, lon, sg_key)
+                _tide_cache_time = now_ts
+
+            if _tide_cache and "data" in _tide_cache:
+                now_ts  = time.time()
+                is_peak = False
+                nxt_min = None
+                nxt_ht  = None
+                for ex in _tide_cache["data"]:
+                    if ex.get("type", "").lower() != "high":
+                        continue
+                    try:
+                        ex_ts = datetime.fromisoformat(ex["time"]).timestamp()
+                    except Exception:
+                        continue
+                    diff = ex_ts - now_ts
+                    if abs(diff) < 1800:
+                        is_peak = True
+                    if diff > 0 and nxt_min is None:
+                        nxt_min = round(diff / 60)
+                        nxt_ht  = round(ex.get("height", 0), 2)
+
+                live_weather["tide"] = {
+                    "is_peak":          is_peak,
+                    "next_high_in_min": nxt_min,
+                    "next_high_height": nxt_ht,
+                    "enabled":          True,
+                }
+                live_weather["warnings"]["peak_tide"] = is_peak
+            else:
+                live_weather["tide"]["enabled"] = bool(sg_key)
+
+        except Exception as e:
+            print(f"[WEATHER LOOP] {e}")
+
+        time.sleep(600)   # refresh every 10 minutes
+# ──────────────────────────────────────────────────────
 
 app = Flask(__name__)
 IMAGE_DIR = "images"
@@ -36,6 +331,7 @@ eyes = VisionSystem(config.get('vision', {}))
 robot_base.vision = eyes
 robot_base.arm    = robot_arm
 eyes.start_stream()
+threading.Thread(target=_weather_monitor_loop, daemon=True).start()
 
 # 3. Web Routes
 @app.route('/')
@@ -137,13 +433,17 @@ def manual_arm_move():
 @app.route('/cmd/chassis/sweep', methods=['POST'])
 def control_chassis_sweep():
     data = request.json
+    boundary_mode = data.get('boundary_mode', False)
     grid_size = float(data.get('distance', 0))
-    
+
+    if boundary_mode:
+        threading.Thread(target=robot_base.sweep_until_boundary).start()
+        return jsonify({"status": "sweeping", "mode": "boundary"})
+
     if grid_size > 0:
-        # Run the long sweep sequence in a background thread
         threading.Thread(target=robot_base.sweep_area, args=(grid_size,)).start()
         return jsonify({"status": "sweeping", "grid_size": grid_size})
-        
+
     return jsonify({"status": "error", "message": "Invalid grid size"}), 400
 
 @app.route('/cmd/chassis/distance', methods=['POST'])
@@ -268,6 +568,43 @@ def update_grab_zone():
         
     return jsonify({"status": "updated", "config": eyes.zone_cfg})
 
+@app.route('/api/test_sms', methods=['POST'])
+def test_sms():
+    try:
+        with open('config.json', 'r') as f:
+            sms_cfg = json.load(f).get("sms", {})
+    except Exception:
+        sms_cfg = {}
+    msg = (
+        f"[TIDEY TEST] SMS notifications are working!\n"
+        f"Plastic Bin: {bin_volumes['plastic']:.1f}% | Glass Bin: {bin_volumes['glass']:.1f}%"
+    )
+    ok = _send_sms(msg, sms_cfg)
+    return jsonify({"status": "sent" if ok else "failed"})
+
+@app.route('/api/weather', methods=['GET'])
+def get_weather():
+    return jsonify(live_weather)
+
+@app.route('/api/bin_volumes', methods=['GET'])
+def get_bin_volumes():
+    return jsonify(bin_volumes)
+
+@app.route('/api/bin_volumes/reset', methods=['POST'])
+def reset_bin_volumes():
+    data = request.json or {}
+    target = data.get('bin', 'all')
+    if target == 'plastic':
+        bin_volumes['plastic'] = 0.0
+    elif target == 'glass':
+        bin_volumes['glass'] = 0.0
+    else:
+        bin_volumes['plastic'] = 0.0
+        bin_volumes['glass'] = 0.0
+    _save_bin_volumes(bin_volumes)
+    print(f"[BIN] Reset '{target}' bin(s).")
+    return jsonify({"status": "ok", "bin_volumes": bin_volumes})
+
 @app.route('/cmd/chassis/track/<state>', methods=['POST'])
 def set_tracking(state):
     global tracking_active
@@ -351,6 +688,7 @@ def tracking_loop():
                                 
                             # 3. Execute Drop Off
                             robot_arm.return_sequence(zone)
+                            record_bin_pickup(trash_class)
                             print(f"[AUTO] Dropped {trash_class} in zone: {zone}")
                                                     
                         # Run the combined sequence in the background thread
