@@ -636,12 +636,53 @@ class Chassis:
         if final_heading is not None:
             print(f"[CHASSIS] Turn complete. Final Heading: {final_heading:.2f}\n")
 
+    def _recalibrate_heading(self, last_known=None, timeout=15.0):
+        """Full mid-maneuver IMU recalibration.
+        Stops motors, waits for motor magnetic field to decay, restarts the
+        BNO085 calibration cycle, and blocks until the chip reports acceptable
+        accuracy before returning a fresh heading reading.
+        Falls back to last_known if the sensor cannot stabilise in time.
+        """
+        print("[IMU RECAL] Starting full recalibration -- motors stopped.")
+        self.stop()
+        time.sleep(2.0)  # Let motor coil magnetic field fully decay
+
+        try:
+            self.bno.begin_calibration()
+            print("[IMU RECAL] Calibration cycle restarted on BNO085.")
+        except Exception as e:
+            print(f"[IMU RECAL] begin_calibration failed: {e}")
+
+        # Poll until the chip confirms accuracy >= 2, or timeout
+        start = time.time()
+        while time.time() - start < timeout:
+            try:
+                accuracy = self.bno.calibration_status
+            except Exception:
+                accuracy = 0
+            print(f"[IMU RECAL] Accuracy: {accuracy}/3")
+            if accuracy >= 2:
+                print(f"[IMU RECAL] Accuracy locked at {accuracy}/3 -- reading heading.")
+                break
+            time.sleep(0.5)
+        else:
+            print("[IMU RECAL] Timeout -- proceeding with best available accuracy.")
+
+        heading = self.get_heading_smoothed(samples=15)
+        if heading is not None:
+            print(f"[IMU RECAL] Stable heading: {heading:.1f}°")
+        else:
+            print(f"[IMU RECAL] Could not get stable heading -- using last known: {last_known}")
+            heading = last_known
+
+        return heading
+
     def _skid_turn_to(self, target_heading, timeout=12.0):
         """Skid-steer to an absolute heading. Returns True on success, False on timeout."""
         DEADBAND          = 5.0
         SETTLE_READS      = 4
         TURN_SPEED        = self.turn_speed
-        MAX_HEADING_JUMP  = 40.0  # degrees — rejects EMI-induced sensor spikes
+        MAX_HEADING_JUMP  = 25.0  # degrees — rejects EMI-induced sensor spikes
 
         settled    = 0
         start_time = time.time()
@@ -660,15 +701,10 @@ class Chassis:
             if last_valid is not None:
                 jump = abs((current - last_valid + 540) % 360 - 180)
                 if jump > MAX_HEADING_JUMP:
-                    print(f"[IMU GLITCH] {last_valid:.1f}° -> {current:.1f}° ({jump:.1f}° jump) -- stopping to recalibrate")
-                    self.stop()
-                    time.sleep(0.3)
-                    recal = self.get_heading_smoothed(samples=10)
+                    print(f"[IMU GLITCH] {last_valid:.1f}° -> {current:.1f}° ({jump:.1f}° jump) -- full recalibration")
+                    recal = self._recalibrate_heading(last_known=last_valid)
                     if recal is not None:
-                        print(f"[IMU RECAL] Settled at {recal:.1f}° -- resuming turn to {target_heading:.1f}°")
                         last_valid = recal
-                    else:
-                        print("[IMU RECAL] Could not get stable reading -- retrying next tick")
                     continue
             last_valid = current
 
@@ -708,6 +744,7 @@ class Chassis:
         mid_offset  = -90.0 if turn_deg < 0 else +90.0
         mid_heading = (current + mid_offset) % 360
 
+        time.sleep(0.5)
         # Phase 1: first 90° skid turn
         print(f"[CHASSIS] Phase 1: Skid turn to {mid_heading:.1f}°")
         if not self._skid_turn_to(mid_heading):
@@ -722,7 +759,8 @@ class Chassis:
             self.motor_right.backward(self.speed_right)
             time.sleep(0.02)
         self.stop()
-        time.sleep(0.3)
+        # Extended pause: lets residual motor magnetic field decay before the IMU is trusted.
+        time.sleep(3.0)
 
         # Recalibrate IMU before Phase 3 so error is computed from a fresh, settled reading
         print("[CHASSIS] Recalibrating IMU heading before Phase 3...")
@@ -742,6 +780,69 @@ class Chassis:
         if final is not None:
             print(f"[CHASSIS] U-turn complete. Final heading: {final:.1f}°")
         return final
+
+    def sweep_until_boundary(self):
+        """Drive forward with heading lock and pickup logic until red tape boundary is hit."""
+        current_heading = self.get_heading_smoothed(samples=10)
+        if current_heading is None:
+            current_heading = self.get_heading() or 0.0
+
+        print(f"\n[SWEEP] Boundary mode started. Locking to heading {current_heading:.1f}°")
+
+        while True:
+            if self.is_tilted_dangerously():
+                self.stop()
+                print("\n[CHASSIS] EMERGENCY STOP: Excessive tilt detected!\n")
+                return
+
+            if getattr(self, "has_ina", False) and not self.bat_alert.value:
+                self.stop()
+                print("\n[CHASSIS] EMERGENCY STOP: Battery Alert on GPIO6!\n")
+                return
+
+            if self.vision and self.vision.red_tape_triggered:
+                self.vision.red_tape_triggered = False
+                self.stop()
+                print("\n[SWEEP] --- RED TAPE BOUNDARY HIT --- Stopping.\n")
+                return
+
+            if self.vision and getattr(self.vision, 'target_in_response_zone', False):
+                self.stop()
+                pause_ts = time.strftime("%H:%M:%S")
+                print(f"\n[SWEEP] {pause_ts} | Target detected. Pausing for pickup.")
+
+                MAX_PICKUPS_PER_POSITION = 5
+                pickup_count = 0
+                while (pickup_count < MAX_PICKUPS_PER_POSITION
+                       and self.vision
+                       and getattr(self.vision, 'target_in_response_zone', False)):
+                    pickup_count += 1
+                    trash_type = getattr(self.vision, 'target_class', "Unknown")
+                    conf       = getattr(self.vision, 'target_conf',  0.0)
+                    print(f"[SWEEP] Pickup #{pickup_count}: {trash_type} (conf={conf:.2f})")
+                    self.execute_pickup_and_return(trash_type)
+                    time.sleep(0.5)
+
+                print(f"[SWEEP] Zone clear after {pickup_count} pickup(s). Resuming boundary run.")
+                continue
+
+            current = self.get_heading()
+            if current is None:
+                time.sleep(0.01)
+                continue
+
+            error = (current_heading - current + 540) % 360 - 180
+            if abs(error) <= 2.0:
+                error = 0.0
+
+            correction = error * 0.015
+            l_speed = max(0.35, min(1.0, self.speed_left - correction))
+            r_speed = max(0.35, min(1.0, self.speed_right + correction))
+
+            self.motor_left.forward(l_speed)
+            self.motor_right.backward(r_speed)
+
+            time.sleep(0.02)
 
     def sweep_area(self, grid_size_cm):
         lane_width_cm = 50.0
