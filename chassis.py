@@ -8,16 +8,13 @@ import busio
 from gpiozero import Motor
 from digitalio import DigitalInOut, Direction, Pull
 from adafruit_bno08x import (
-    BNO_REPORT_ROTATION_VECTOR,
-    BNO_REPORT_MAGNETOMETER,
+    BNO_REPORT_GAME_ROTATION_VECTOR,
 )
 from adafruit_bno08x.i2c import BNO08X_I2C
 from ina226 import INA226
 
 class Chassis:
-    CALIBRATION_FILE = "bno085_calibration.json"
-    
-    PITCH_OFFSET = 4.0    
+    PITCH_OFFSET = 4.0
     ROLL_OFFSET  = -7.0   
 
     def __init__(self, config):
@@ -56,27 +53,17 @@ class Chassis:
             # Initialize without a reset pin
             self.bno = BNO08X_I2C(self.i2c, reset=None)
             
-            self.bno.enable_feature(BNO_REPORT_ROTATION_VECTOR)
-            self.bno.enable_feature(BNO_REPORT_MAGNETOMETER)
-
-            print("[CHASSIS] Starting magnetometer calibration routine...")
-            self.bno.begin_calibration()
+            self.bno.enable_feature(BNO_REPORT_GAME_ROTATION_VECTOR)
 
             print("[CHASSIS] Priming sensor data stream...")
             for _ in range(10):
                 try:
-                    _ = self.bno.quaternion
-                    _ = self.bno.magnetic
+                    _ = self.bno.game_quaternion
                 except Exception:
                     pass
                 time.sleep(0.1)
 
             print("[CHASSIS] BNO085 hardware initialized on GPIO5.\n")
-            time.sleep(2)
-            
-            if not self.load_calibration():
-                self.wait_for_calibration()
-
             self.warmup(seconds=5)
             
             self.has_imu = True
@@ -118,97 +105,6 @@ class Chassis:
         elif voltage >= 12.0: return 5
         else: return 0
 
-    # ---------------------------------------------------------
-    # IMU CALIBRATION ROUTINES
-    # ---------------------------------------------------------
-    def save_calibration(self):
-        try:
-            cal = self.bno.calibration_status
-            with open(self.CALIBRATION_FILE, "w") as f:
-                json.dump({"calibration_status": cal, "timestamp": time.time()}, f)
-            print(f"[CAL] Calibration saved to {self.CALIBRATION_FILE}")
-        except Exception as e:
-            print(f"[CAL] Could not save calibration: {e}")
-
-    def load_calibration(self):
-        if not os.path.exists(self.CALIBRATION_FILE):
-            print("[CAL] No saved calibration found -- starting fresh.")
-            return False
-        try:
-            with open(self.CALIBRATION_FILE, "r") as f:
-                data = json.load(f)
-            age_hours = (time.time() - data.get("timestamp", 0)) / 3600
-            print(f"[CAL] Loaded calibration (saved {age_hours:.1f} hours ago).")
-            return True
-        except Exception as e:
-            print(f"[CAL] Could not load calibration: {e}")
-            return False
-
-    def wait_for_calibration(self):
-        print("\n[CAL] Starting calibration -- move sensor in figure-8 on all axes")
-        print("      Include vertical and tilted orientations, not just flat.")
-        print("      Accuracy: 0=unreliable  1=low  2=medium  3=high\n")
-
-        mag_history = []
-        history = []
-        stable_count = 0
-        STABLE_THRESHOLD = 10
-        read_count = 0
-
-        while True:
-            try:
-                try:
-                    accuracy = self.bno.calibration_status
-                except Exception:
-                    accuracy = 0
-
-                mx, my, mz = self.bno.magnetic
-                mag_total = math.sqrt(mx**2 + my**2 + mz**2)
-
-                mag_history.append((mx, my, mz))
-                if len(mag_history) > 30:
-                    mag_history.pop(0)
-
-                if len(mag_history) >= 10:
-                    xs = [m[0] for m in mag_history]
-                    ys = [m[1] for m in mag_history]
-                    zs = [m[2] for m in mag_history]
-                    swing = (max(xs)-min(xs)) + (max(ys)-min(ys)) + (max(zs)-min(zs))
-                    derived_accuracy = min(3, int(swing / 40))
-                else:
-                    swing = 0
-                    derived_accuracy = 0
-
-                display_accuracy = max(accuracy, derived_accuracy)
-
-                history.append(display_accuracy)
-                if len(history) > 20:
-                    history.pop(0)
-
-                bar = "X" * display_accuracy + "." * (3 - display_accuracy)
-                label = ["UNRELIABLE", "LOW     ", "MEDIUM  ", "HIGH    "][display_accuracy]
-
-                read_count += 1
-                print(
-                    f"[{read_count:>4}] [{bar}] {display_accuracy}/3 {label} | "
-                    f"strength={mag_total:>6.1f}uT | "
-                    f"swing={swing:>6.1f}"
-                )
-
-                if display_accuracy >= 2:
-                    stable_count += 1
-                else:
-                    stable_count = 0
-
-                if stable_count >= STABLE_THRESHOLD:
-                    print("\n[CAL] Calibration locked in.")
-                    self.save_calibration()
-                    return
-
-            except Exception as e:
-                print(f"[CAL READ ERROR] {e}")
-
-            time.sleep(0.5)
 
     def warmup(self, seconds=5):
         print(f"[INIT] Warming up fusion engine ({seconds}s) -- hold sensor still...")
@@ -225,7 +121,7 @@ class Chassis:
             return 0.0
             
         try:
-            quat = self.bno.quaternion
+            quat = self.bno.game_quaternion
             if quat:
                 i, j, k, real = quat
                 w, x, y, z = real, i, j, k
@@ -283,7 +179,7 @@ class Chassis:
             return False
             
         try:
-            quat = self.bno.quaternion
+            quat = self.bno.game_quaternion
             if quat:
                 i, j, k, real = quat
                 w, x, y, z = real, i, j, k
@@ -353,27 +249,30 @@ class Chassis:
             self.stop()
             return 
         
+        MAX_HEADING_JUMP = 25.0
+        last_heading = None
+        jump_cooldown = 0
         start_time = time.time()
-        
+
         while (time.time() - start_time) < travel_time:
             # --- EMERGENCY PROTECTIONS ---
             if self.is_tilted_dangerously():
                 self.stop()
                 print("\n[CHASSIS] EMERGENCY STOP: Excessive tilt detected!\n")
-                return 
+                return
 
             if getattr(self, "has_ina", False) and not self.bat_alert.value:
                 self.stop()
                 print("\n[CHASSIS] EMERGENCY STOP: Battery Alert Triggered on GPIO6!\n")
                 return
-                
+
             # --- RED TAPE OVERRIDE ---
             if self.vision and self.vision.red_tape_triggered:
                 print("\n[CHASSIS] --- RED TAPE BOUNDARY HIT --- Turning around early!\n")
-                self.vision.red_tape_triggered = False  
+                self.vision.red_tape_triggered = False
                 self.stop()
-                return 
-                
+                return
+
             # --- AUTO PICKUP OVERRIDE ---
             if self.vision and getattr(self.vision, 'target_in_response_zone', False):
                 self.stop()
@@ -381,9 +280,6 @@ class Chassis:
                 pause_ts = time.strftime("%H:%M:%S")
                 print(f"\n[SWEEP] {pause_ts} | Target detected. Pausing sweep ({time_driven_so_far:.2f}s into lane).")
 
-                # Multi-target loop: keep picking up while the response zone has valid targets.
-                # MAX_PICKUPS_PER_POSITION guards against an infinite loop if a failed grab
-                # leaves the same item in the zone repeatedly.
                 MAX_PICKUPS_PER_POSITION = 5
                 pickup_count = 0
                 while (pickup_count < MAX_PICKUPS_PER_POSITION
@@ -394,7 +290,6 @@ class Chassis:
                     conf       = getattr(self.vision, 'target_conf',  0.0)
                     print(f"[SWEEP] Pickup #{pickup_count}: {trash_type} (conf={conf:.2f})")
                     self.execute_pickup_and_return(trash_type)
-                    # Let the vision thread update the zone flag before re-checking.
                     time.sleep(0.5)
 
                 if pickup_count >= MAX_PICKUPS_PER_POSITION:
@@ -402,15 +297,29 @@ class Chassis:
 
                 travel_time = travel_time - time_driven_so_far
                 start_time  = time.time()
+                last_heading = None  # reset jump tracker after a pickup detour
                 resume_ts   = time.strftime("%H:%M:%S")
                 print(f"[SWEEP] {resume_ts} | Zone clear after {pickup_count} pickup(s). Resuming — {travel_time:.2f}s remaining.\n")
-                
+
             current_heading = self.get_heading()
-            
+
             if current_heading is None:
                 time.sleep(0.01)
                 continue
-                
+
+            # --- IMU JUMP COMPENSATION ---
+            if jump_cooldown > 0:
+                jump_cooldown -= 1
+            elif last_heading is not None:
+                jump = (current_heading - last_heading + 540) % 360 - 180
+                if abs(jump) > MAX_HEADING_JUMP:
+                    target_heading = (target_heading + jump) % 360
+                    last_heading = current_heading  # anchor to jumped value immediately
+                    jump_cooldown = 15              # ~0.3s: block snapback from undoing this
+                    print(f"[IMU] Jump of {jump:+.1f}° — target locked to {target_heading:.1f}°")
+            if jump_cooldown == 0:
+                last_heading = current_heading
+
             error = (target_heading - current_heading + 540) % 360 - 180
             
             if abs(error) <= 2.0:
@@ -576,7 +485,7 @@ class Chassis:
 
         if getattr(self, 'has_imu', False):
             try:
-                quat = self.bno.quaternion
+                quat = self.bno.game_quaternion
                 if quat:
                     i, j, k, real = quat
                     w, x, y, z = real, i, j, k
@@ -674,47 +583,6 @@ class Chassis:
         if final_heading is not None:
             print(f"[CHASSIS] Turn complete. Final Heading: {final_heading:.2f}\n")
 
-    def _recalibrate_heading(self, last_known=None, timeout=15.0):
-        """Full mid-maneuver IMU recalibration.
-        Stops motors, waits for motor magnetic field to decay, restarts the
-        BNO085 calibration cycle, and blocks until the chip reports acceptable
-        accuracy before returning a fresh heading reading.
-        Falls back to last_known if the sensor cannot stabilise in time.
-        """
-        print("[IMU RECAL] Starting full recalibration -- motors stopped.")
-        self.stop()
-        time.sleep(2.0)  # Let motor coil magnetic field fully decay
-
-        try:
-            self.bno.begin_calibration()
-            print("[IMU RECAL] Calibration cycle restarted on BNO085.")
-        except Exception as e:
-            print(f"[IMU RECAL] begin_calibration failed: {e}")
-
-        # Poll until the chip confirms accuracy >= 2, or timeout
-        start = time.time()
-        while time.time() - start < timeout:
-            try:
-                accuracy = self.bno.calibration_status
-            except Exception:
-                accuracy = 0
-            print(f"[IMU RECAL] Accuracy: {accuracy}/3")
-            if accuracy >= 2:
-                print(f"[IMU RECAL] Accuracy locked at {accuracy}/3 -- reading heading.")
-                break
-            time.sleep(0.5)
-        else:
-            print("[IMU RECAL] Timeout -- proceeding with best available accuracy.")
-
-        heading = self.get_heading_smoothed(samples=15)
-        if heading is not None:
-            print(f"[IMU RECAL] Stable heading: {heading:.1f}°")
-        else:
-            print(f"[IMU RECAL] Could not get stable heading -- using last known: {last_known}")
-            heading = last_known
-
-        return heading
-
     def _skid_turn_to(self, target_heading, timeout=12.0):
         """Skid-steer to an absolute heading. Returns True on success, False on timeout."""
         DEADBAND          = 5.0
@@ -722,9 +590,10 @@ class Chassis:
         TURN_SPEED        = self.turn_speed
         MAX_HEADING_JUMP  = 25.0  # degrees — rejects EMI-induced sensor spikes
 
-        settled    = 0
-        start_time = time.time()
-        last_valid = None
+        settled       = 0
+        start_time    = time.time()
+        last_valid    = None
+        jump_cooldown = 0
 
         while True:
             if time.time() - start_time > timeout:
@@ -736,14 +605,15 @@ class Chassis:
                 time.sleep(0.01)
                 continue
 
-            if last_valid is not None:
-                jump = abs((current - last_valid + 540) % 360 - 180)
-                if jump > MAX_HEADING_JUMP:
-                    print(f"[IMU GLITCH] {last_valid:.1f}° -> {current:.1f}° ({jump:.1f}° jump) -- full recalibration")
-                    recal = self._recalibrate_heading(last_known=last_valid)
-                    if recal is not None:
-                        last_valid = recal
-                    continue
+            if jump_cooldown > 0:
+                jump_cooldown -= 1
+            elif last_valid is not None:
+                signed_jump = (current - last_valid + 540) % 360 - 180
+                if abs(signed_jump) > MAX_HEADING_JUMP:
+                    target_heading = (target_heading + signed_jump) % 360
+                    jump_cooldown  = 10
+                    print(f"[IMU] Jump of {signed_jump:+.1f}° during turn — target adjusted to {target_heading:.1f}°")
+
             last_valid = current
 
             error = (target_heading - current + 540) % 360 - 180
