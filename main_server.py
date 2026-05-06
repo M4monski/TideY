@@ -439,7 +439,7 @@ def control_chassis_sweep():
     grid_size = float(data.get('distance', 0))
 
     if boundary_mode:
-        threading.Thread(target=robot_base.sweep_until_boundary).start()
+        threading.Thread(target=robot_base.sweep_area).start()
         return jsonify({"status": "sweeping", "mode": "boundary"})
 
     if grid_size > 0:

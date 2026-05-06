@@ -183,7 +183,7 @@ class RoboticArm:
         canonical_joints = ["base", "shoulder", "elbow", "wpitch", "wroll", "gripper"]
         
         # The customized order you want the arm to physically move in
-        move_order = ["base", "shoulder", "elbow", "wpitch", "wroll", "gripper"]
+        move_order = ["base", "elbow", "shoulder", "wpitch", "wroll", "gripper"]
         
         for name in move_order:
             # Find the correct index for this joint to get its matching home angle

@@ -2,3 +2,4 @@ images
 eeprom_state.json
 config.json
 __pycache__/
+bin_volumes.json

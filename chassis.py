@@ -484,11 +484,23 @@ class Chassis:
                     self.motor_left.forward(turn_spd)
                     self.motor_right.forward(turn_spd)
             else:
-                green_height   = ty_bottom - ty_top
-                is_contained   = (ty_top >= red_top) and (ty_bottom <= red_bottom)
+                green_height = ty_bottom - ty_top
+
+                # Inner center box of grab zone (middle 50% of its height)
+                gz_cy           = (red_top + red_bottom) / 2
+                gz_inner_top    = gz_cy - (zh * 0.25)
+                gz_inner_bottom = gz_cy + (zh * 0.25)
+
+                # Inner center box of core hitbox (middle 50% of its height)
+                core_cy           = (ty_top + ty_bottom) / 2
+                core_inner_top    = core_cy - (green_height * 0.25)
+                core_inner_bottom = core_cy + (green_height * 0.25)
+
+                # Pickup triggers when the two center boxes overlap
+                is_centered    = (core_inner_top <= gz_inner_bottom) and (core_inner_bottom >= gz_inner_top)
                 is_giant_trash = (green_height >= zh) and (ty_bottom >= red_bottom)
 
-                if is_contained or is_giant_trash:
+                if is_centered or is_giant_trash:
                     self.stop()
                     grabbed = True
                     break
@@ -807,81 +819,23 @@ class Chassis:
             print(f"[CHASSIS] U-turn complete. Final heading: {final:.1f}°")
         return final
 
-    def sweep_until_boundary(self):
-        """Drive forward with heading lock and pickup logic until red tape boundary is hit."""
-        current_heading = self.get_heading_smoothed(samples=10)
-        if current_heading is None:
-            current_heading = self.get_heading() or 0.0
+    def sweep_area(self, grid_size_cm=None):
+        rest_time = 0.5
 
-        print(f"\n[SWEEP] Boundary mode started. Locking to heading {current_heading:.1f}°")
-
-        while True:
-            if self.is_tilted_dangerously():
-                self.stop()
-                print("\n[CHASSIS] EMERGENCY STOP: Excessive tilt detected!\n")
-                return
-
-            if getattr(self, "has_ina", False) and not self.bat_alert.value:
-                self.stop()
-                print("\n[CHASSIS] EMERGENCY STOP: Battery Alert on GPIO6!\n")
-                return
-
-            if self.vision and self.vision.red_tape_triggered:
-                self.vision.red_tape_triggered = False
-                self.stop()
-                print("\n[SWEEP] --- RED TAPE BOUNDARY HIT --- Stopping.\n")
-                return
-
-            if self.vision and getattr(self.vision, 'target_in_response_zone', False):
-                self.stop()
-                pause_ts = time.strftime("%H:%M:%S")
-                print(f"\n[SWEEP] {pause_ts} | Target detected. Pausing for pickup.")
-
-                MAX_PICKUPS_PER_POSITION = 5
-                pickup_count = 0
-                while (pickup_count < MAX_PICKUPS_PER_POSITION
-                       and self.vision
-                       and getattr(self.vision, 'target_in_response_zone', False)):
-                    pickup_count += 1
-                    trash_type = getattr(self.vision, 'target_class', "Unknown")
-                    conf       = getattr(self.vision, 'target_conf',  0.0)
-                    print(f"[SWEEP] Pickup #{pickup_count}: {trash_type} (conf={conf:.2f})")
-                    self.execute_pickup_and_return(trash_type)
-                    time.sleep(0.5)
-
-                print(f"[SWEEP] Zone clear after {pickup_count} pickup(s). Resuming boundary run.")
-                continue
-
-            current = self.get_heading()
-            if current is None:
-                time.sleep(0.01)
-                continue
-
-            error = (current_heading - current + 540) % 360 - 180
-            if abs(error) <= 2.0:
-                error = 0.0
-
-            correction = error * 0.015
-            l_speed = max(0.35, min(1.0, self.speed_left - correction))
-            r_speed = max(0.35, min(1.0, self.speed_right + correction))
-
-            self.motor_left.forward(l_speed)
-            self.motor_right.backward(r_speed)
-
-            time.sleep(0.02)
-
-    def sweep_area(self, grid_size_cm):
-        lane_width_cm = 50.0
-        rest_time     = 0.5
-
-        lanes     = max(1, int(grid_size_cm / lane_width_cm))
-        lane_time = grid_size_cm * (6.1 / 170.0)
+        if grid_size_cm:
+            lane_width_cm = 50.0
+            lanes     = max(1, int(grid_size_cm / lane_width_cm))
+            lane_time = grid_size_cm * (6.1 / 170.0)
+            print(f"\n[SWEEP] Starting sweep: {lanes} lanes")
+        else:
+            lanes     = 999
+            lane_time = 600.0  # red tape boundary will always cut this short
+            print(f"\n[SWEEP] Boundary mode: driving until red tape, U-turning indefinitely.")
 
         current_heading = self.get_heading_smoothed(samples=10)
         if current_heading is None:
             current_heading = self.get_heading() or 0.0
-            
-        print(f"\n[SWEEP] Starting sweep: {lanes} lanes")
+
         print(f"[SWEEP] Initial heading = {current_heading:.1f}°")
 
         use_right_turn = True
