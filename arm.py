@@ -135,9 +135,9 @@ class RoboticArm:
         # Move directly to the drop position
         self.smooth_move("shoulder", 80)
         time.sleep(self.pause_time)
-        self.smooth_move("base", base_target)
-        time.sleep(self.pause_time)
         self.smooth_move("wpitch", 20)
+        time.sleep(self.pause_time)
+        self.smooth_move("base", base_target)
         time.sleep(self.pause_time)
         self.smooth_move("elbow", 130)
         time.sleep(self.pause_time)
@@ -160,9 +160,9 @@ class RoboticArm:
         # 1. Lift and reach over the drop zone using proper setup angles
         self.smooth_move("shoulder", 80)
         time.sleep(self.pause_time)
-        self.smooth_move("base", base_target)
-        time.sleep(self.pause_time)
         self.smooth_move("wpitch", 20)
+        time.sleep(self.pause_time)
+        self.smooth_move("base", base_target)
         time.sleep(self.pause_time)
         self.smooth_move("elbow", 130)
         time.sleep(self.pause_time)
@@ -183,7 +183,7 @@ class RoboticArm:
         canonical_joints = ["base", "shoulder", "elbow", "wpitch", "wroll", "gripper"]
         
         # The customized order you want the arm to physically move in
-        move_order = ["elbow", "base", "shoulder", "wpitch", "wroll", "gripper"]
+        move_order = ["base", "shoulder", "elbow", "wpitch", "wroll", "gripper"]
         
         for name in move_order:
             # Find the correct index for this joint to get its matching home angle

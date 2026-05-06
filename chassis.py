@@ -445,40 +445,66 @@ class Chassis:
         if self.vision:
             self.vision.pause_tape_detection()
 
-        print("[PICKUP] Aligning to target...")
-        align_timeout = time.time() + 5.0
-        while time.time() < align_timeout:
-            if not self.vision or self.vision.target_x is None:
-                break
-            
-            error_x = self.vision.target_x - 320 
-            if abs(error_x) < 25: 
-                self.stop()
-                break 
-                
-            align_speed = 0.32 
-            if error_x > 0:
-                self.motor_left.forward(align_speed)
-                self.motor_right.forward(align_speed)
-            else:
-                self.motor_left.backward(align_speed)
-                self.motor_right.backward(align_speed)
-            time.sleep(0.02)
-        self.stop()
+        # Compute grab zone boundaries — identical to auto-align tracking_loop
+        zh = self.vision.zone_cfg.get("height", 90) if self.vision else 90
+        oy = self.vision.zone_cfg.get("offset_y", 0) if self.vision else 0
+        red_center_y = 360 - (zh / 2) + oy
+        red_top    = red_center_y - (zh / 2)
+        red_bottom = red_center_y + (zh / 2)
+        crosshair_left  = 260
+        crosshair_right = 380
 
-        print("[PICKUP] Approaching target...")
-        approach_start = time.time()
-        approach_timeout = approach_start + 6.0 
-        
-        while time.time() < approach_timeout:
-            if self.vision and self.vision.target_in_grab_zone:
-                break 
-            self.move_approach()
+        print("[PICKUP] Aligning and approaching target...")
+        seq_start = time.time()
+        seq_timeout = seq_start + 15.0
+        grabbed = False
+
+        while time.time() < seq_timeout:
+            if not self.vision:
+                break
+
+            tx        = self.vision.target_x
+            ty_top    = getattr(self.vision, 'target_y_top', None)
+            ty_bottom = getattr(self.vision, 'target_y_bottom', None)
+
+            if tx is None or ty_top is None or ty_bottom is None:
+                self.stop()
+                time.sleep(0.05)
+                continue
+
+            if tx < crosshair_left or tx > crosshair_right:
+                center_x  = (crosshair_left + crosshair_right) / 2
+                error_x   = abs(tx - center_x)
+                min_turn  = 0.28
+                turn_spd  = min(min_turn + (error_x / 320) * (self.turn_speed - min_turn), self.turn_speed)
+                if tx < crosshair_left:
+                    self.motor_left.backward(turn_spd)
+                    self.motor_right.backward(turn_spd)
+                else:
+                    self.motor_left.forward(turn_spd)
+                    self.motor_right.forward(turn_spd)
+            else:
+                green_height   = ty_bottom - ty_top
+                is_contained   = (ty_top >= red_top) and (ty_bottom <= red_bottom)
+                is_giant_trash = (green_height >= zh) and (ty_bottom >= red_bottom)
+
+                if is_contained or is_giant_trash:
+                    self.stop()
+                    grabbed = True
+                    break
+                else:
+                    self.move_approach()
+
             time.sleep(0.02)
-            
+
         self.stop()
-        approach_time = time.time() - approach_start
-        print(f"[PICKUP] Target reached. Forward drive took: {approach_time:.2f}s")
+        approach_time = time.time() - seq_start
+
+        if not grabbed:
+            print("[PICKUP] Timed out — trash never reached grab zone. Aborting.")
+            if self.vision:
+                self.vision.resume_tape_detection()
+            return
 
         t_grab = time.time()
         print(f"[PICKUP] {time.strftime('%H:%M:%S')} | *** GRABBING TRASH ({t_grab - t_start:.2f}s since pickup start) ***")
