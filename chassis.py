@@ -709,6 +709,7 @@ class Chassis:
         print(f"[SWEEP] Initial heading = {current_heading:.1f}°")
 
         use_right_turn = True
+        uturn_count = 0
 
         for i in range(lanes):
             print(f"[SWEEP] Lane {i + 1}/{lanes} | heading = {current_heading:.1f}°")
@@ -719,28 +720,36 @@ class Chassis:
 
             time.sleep(rest_time)
 
+            uturn_count += 1
             turn_deg = -180.0 if use_right_turn else +180.0
             label    = "RIGHT" if use_right_turn else "LEFT"
-            print(f"[SWEEP] 180° {label} arc U-turn")
-            
+
+            # Every 8th U-turn is a re-entry: repeat the previous direction instead of alternating.
+            # This is achieved by NOT flipping after the 7th turn, so the 8th inherits the same value.
+            is_reentry = (uturn_count % 8 == 0)
+            suffix = " [RE-ENTRY — repeating last direction]" if is_reentry else ""
+            print(f"[SWEEP] U-turn #{uturn_count} — 180° {label} arc{suffix}")
+
             if self.vision:
                 self.vision.pause_tape_detection()
-                
+
             self.arc_turn_to_heading((current_heading + turn_deg) % 360, turn_deg)
 
             self.stop()
             time.sleep(1.0)
-            
+
             if self.vision:
                 self.vision.resume_tape_detection()
-                
+
             new_heading = self.get_heading_smoothed(samples=10)
             if new_heading is not None:
                 current_heading = new_heading
-                
+
             print(f"[SWEEP] Fresh IMU heading after arc: {current_heading:.1f}° — this is the new straight")
 
             time.sleep(0.3)
-            use_right_turn = not use_right_turn
+            # Skip the flip after the 7th turn so the 8th (re-entry) repeats the same direction.
+            if uturn_count % 8 != 7:
+                use_right_turn = not use_right_turn
 
         print("[SWEEP] --- SWEEP COMPLETE ---\n")

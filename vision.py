@@ -135,7 +135,7 @@ class VisionSystem:
                             if dist >= 0:
                                 tapes_hitting_boundary += 1
                                 
-                                if tape_w >= (rt_w * 0.38):
+                                if tape_w >= (rt_w * 0.33):
                                     large_tape_detected = True
 
                         # Target tracking logic (ignores Red_Tape)
