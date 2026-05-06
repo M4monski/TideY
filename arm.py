@@ -22,7 +22,7 @@ class RoboticArm:
 
         self.tick_min = 150
         self.tick_max = 600
-        self.home_pos = config.get("home_pos", [20, 50, 90, 200, 237, 140])
+        self.home_pos = config.get("home_pos", [20, 50, 90, 110, 237, 160])
         self.pause_time = config.get("pause_between_joints", 0.5)
         
         self.current_pos = [0] * 6
@@ -90,27 +90,36 @@ class RoboticArm:
 
     def pickup_sequence(self, orientation="vertical"):
         print(f"[ARM] Executing Pickup Sequence for {orientation.upper()} trash...")
-        
-        base_wroll = 237  
-        if orientation == "horizontal":
-            target_wroll = base_wroll - 90 
-        else:
-            target_wroll = base_wroll 
 
-        # Move directly to your calibrated pickup position
-        self.smooth_move("base", 20)
+        if orientation == "horizontal":
+            target_base     = 20
+            target_shoulder = 85
+            target_elbow    = 50
+            target_wpitch   = 180
+            target_wroll    = 147
+            target_gripper  = 192
+        else:
+            target_base     = 20
+            target_shoulder = 87
+            target_elbow    = 50
+            target_wpitch   = 165
+            target_wroll    = 237
+            target_gripper  = 192
+
+        self.smooth_move("elbow", target_elbow)
+        time.sleep(self.pause_time)
+        self.smooth_move("wpitch", target_wpitch)
+        time.sleep(self.pause_time)
+        self.smooth_move("base", target_base)
         time.sleep(self.pause_time)
         self.smooth_move("wroll", target_wroll)
         time.sleep(self.pause_time)
-        self.smooth_move("shoulder", 87)
-        time.sleep(self.pause_time)
-        self.smooth_move("elbow", 50)
-        time.sleep(self.pause_time)
-        self.smooth_move("wpitch", 270)
+        self.smooth_move("shoulder", target_shoulder)
         time.sleep(self.pause_time)
         
-        # Clamp gripper
-        self.smooth_move("gripper", 192) 
+        
+
+        self.smooth_move("gripper", target_gripper)
         time.sleep(self.pause_time)
         
     def return_sequence(self, drop_zone='c'):
@@ -128,7 +137,7 @@ class RoboticArm:
         time.sleep(self.pause_time)
         self.smooth_move("base", base_target)
         time.sleep(self.pause_time)
-        self.smooth_move("wpitch", 120)
+        self.smooth_move("wpitch", 20)
         time.sleep(self.pause_time)
         self.smooth_move("elbow", 130)
         time.sleep(self.pause_time)
@@ -153,7 +162,7 @@ class RoboticArm:
         time.sleep(self.pause_time)
         self.smooth_move("base", base_target)
         time.sleep(self.pause_time)
-        self.smooth_move("wpitch", 120)
+        self.smooth_move("wpitch", 20)
         time.sleep(self.pause_time)
         self.smooth_move("elbow", 130)
         time.sleep(self.pause_time)
@@ -238,7 +247,7 @@ class RoboticArm:
 
 if __name__ == "__main__":
     config = {
-        "home_pos": [20, 50, 90, 200, 237, 140],
+        "home_pos": [20, 50, 90, 110, 237, 160],
         "pause_between_joints": 0.5
     }
     arm = RoboticArm(config)

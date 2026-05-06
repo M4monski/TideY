@@ -391,8 +391,10 @@ def control_chassis(direction):
 @app.route('/cmd/arm/<action>', methods=['POST'])
 def control_arm(action):
     # We run the arm in a background thread so the camera stream doesn't freeze!
-    if action == 'pickup': 
-        threading.Thread(target=robot_arm.pickup_sequence).start()
+    if action == 'pickup_v':
+        threading.Thread(target=robot_arm.pickup_sequence, args=('vertical',)).start()
+    elif action == 'pickup_h':
+        threading.Thread(target=robot_arm.pickup_sequence, args=('horizontal',)).start()
     elif action == 'home': 
         threading.Thread(target=robot_arm.home_sequence).start()
     elif action == 'drop_l': 
