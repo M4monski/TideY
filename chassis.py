@@ -795,7 +795,11 @@ class Chassis:
                 dl = self.sensor_left.distance
                 dr = self.sensor_right.distance
 
-                is_trash          = dl < self.TRASH_DIST_THRESH and dr < self.TRASH_DIST_THRESH
+                both_below_thresh = dl < self.TRASH_DIST_THRESH and dr < self.TRASH_DIST_THRESH
+                both_symmetric    = (abs(dl - dr) <= 0.10
+                                     and dl < self.TRASH_DIST_THRESH
+                                     and dr < self.TRASH_DIST_THRESH)
+                is_trash          = both_below_thresh or both_symmetric
                 is_left_obstacle  = dl < self.DIST_THRESH
                 is_right_obstacle = dr < self.DIST_THRESH
 
