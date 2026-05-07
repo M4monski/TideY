@@ -53,6 +53,10 @@ class Chassis:
         self._stop_watchdog   = False
         self._stop_sweep      = False
 
+        # Tilt baseline (set after IMU warmup)
+        self.baseline_pitch = 0.0
+        self.baseline_roll  = 0.0
+
         # Shared I2C Bus
         self.i2c = busio.I2C(board.SCL, board.SDA)
 
@@ -80,7 +84,19 @@ class Chassis:
 
             print("[CHASSIS] BNO085 hardware initialized on GPIO5.\n")
             self.warmup(seconds=5)
-            
+
+            # Sample resting pitch/roll as baseline for tilt detection
+            print("[CHASSIS] Sampling tilt baseline — keep robot flat...")
+            p_samples, r_samples = [], []
+            for _ in range(30):
+                p, r = self._get_pitch_roll()
+                p_samples.append(p)
+                r_samples.append(r)
+                time.sleep(0.05)
+            self.baseline_pitch = sum(p_samples) / len(p_samples)
+            self.baseline_roll  = sum(r_samples) / len(r_samples)
+            print(f"[CHASSIS] Tilt baseline — Pitch: {self.baseline_pitch:.2f}°  Roll: {self.baseline_roll:.2f}°")
+
             self.has_imu = True
             print("[CHASSIS] BNO085 IMU fully ready for precision turns.")
             
@@ -189,10 +205,8 @@ class Chassis:
 
         return avg
 
-    def is_tilted_dangerously(self):
-        if not self.has_imu: 
-            return False
-            
+    def _get_pitch_roll(self):
+        """Return (pitch, roll) in degrees with offsets applied, or (0.0, 0.0) on failure."""
         try:
             quat = self.bno.game_quaternion
             if quat:
@@ -209,18 +223,22 @@ class Chassis:
 
                 pitch += self.PITCH_OFFSET
                 roll  += self.ROLL_OFFSET
-                
+
                 if pitch > 180:  pitch -= 360
                 if pitch < -180: pitch += 360
                 if roll > 180:   roll  -= 360
                 if roll < -180:  roll  += 360
-            
-                if abs(pitch) > 35 or abs(roll) > 35:
-                    return True
+
+                return pitch, roll
         except Exception:
             pass
-            
-        return False
+        return 0.0, 0.0
+
+    def is_tilted_dangerously(self):
+        if not self.has_imu:
+            return False
+        pitch, roll = self._get_pitch_roll()
+        return abs(pitch - self.baseline_pitch) > 5 or abs(roll - self.baseline_roll) > 5
 
     # ---------------------------------------------------------
     # BASIC MOVEMENT
@@ -284,11 +302,17 @@ class Chassis:
                 time.sleep(0.05)
                 continue
             was_dodging = False
-            # --- EMERGENCY PROTECTIONS ---
+            # --- TILT RECOVERY ---
             if self.is_tilted_dangerously():
+                pitch, roll = self._get_pitch_roll()
+                print(f"\n[TILT] DETECTED — Pitch: {pitch:+.1f}°  Roll: {roll:+.1f}°")
+                self.is_dodging = True
                 self.stop()
-                print("\n[CHASSIS] EMERGENCY STOP: Excessive tilt detected!\n")
-                return
+                threading.Thread(
+                    target=self.perform_tilt_recovery,
+                    args=(pitch, roll),
+                    daemon=True
+                ).start()
 
             if getattr(self, "has_ina", False) and not self.bat_alert.value:
                 self.stop()
@@ -787,6 +811,56 @@ class Chassis:
 
         self.is_dodging = False
         print(f"[DODGE] 90° maneuver complete. Back on heading {resume_heading:.1f}°")
+
+    def perform_tilt_recovery(self, pitch, roll):
+        """
+        Reverse straight back then execute a 45° dodge away from the lean direction.
+        Roll sign determines side: negative roll = lean LEFT (slope right) → dodge LEFT.
+                                   positive roll = lean RIGHT (slope left) → dodge RIGHT.
+        Near-zero roll (head-on pitch) defaults to LEFT.
+        """
+        self.is_dodging = True
+        print(f"\n[TILT] Recovery — Pitch: {pitch:+.1f}°  Roll: {roll:+.1f}°")
+
+        self.stop()
+        time.sleep(0.1)
+
+        # Realign to the heading we were on so we reverse straight back
+        print(f"[TILT] Realigning to {self.original_heading:.1f}° before reversing...")
+        self.turn_to_absolute_heading(self.original_heading)
+
+        # Reverse 3 s to back clear of the slope/obstacle
+        print("[TILT] Reversing 3s...")
+        rev_start = time.time()
+        while time.time() - rev_start < 3.0:
+            self.motor_left.backward(self.base_speed)
+            self.motor_right.forward(self.base_speed)
+            time.sleep(0.02)
+        self.stop()
+        time.sleep(0.15)
+
+        # Dodge away from the lean — use delta from baseline so mounting offset doesn't affect direction
+        roll_delta  = roll  - self.baseline_roll
+        pitch_delta = pitch - self.baseline_pitch
+        dodge_dir = 'left' if roll_delta <= 0 else 'right'
+        dominant  = 'Roll' if abs(roll_delta) >= abs(pitch_delta) else 'Pitch'
+        print(f"[TILT] {dominant}-dominant (Δpitch={pitch_delta:+.1f}° Δroll={roll_delta:+.1f}°) — dodging {dodge_dir.upper()}")
+
+        resume_heading = self.original_heading
+        angle = 45 if dodge_dir == 'left' else -45
+
+        self._turn_relative(angle)
+        sidestep_hdg = self.get_heading_smoothed(samples=3) or (resume_heading + angle) % 360
+        self._dodge_forward_meters(1.0, sidestep_hdg)
+        self.turn_to_absolute_heading(resume_heading)
+        self._dodge_forward_meters(2.0, resume_heading)
+        self._turn_relative(-angle)
+        return_hdg = self.get_heading_smoothed(samples=3) or (resume_heading - angle + 360) % 360
+        self._dodge_forward_meters(1.0, return_hdg)
+        self.turn_to_absolute_heading(resume_heading)
+
+        self.is_dodging = False
+        print(f"[TILT] Recovery complete. Back on heading {resume_heading:.1f}°")
 
     def sensor_watchdog(self):
         """Ultrasonic obstacle avoidance — runs in a background thread."""

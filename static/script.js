@@ -236,6 +236,15 @@ function fetchTelemetry() {
       document.getElementById('hud-pitch').innerText = data.pitch;
       document.getElementById('hud-roll').innerText = data.roll;
 
+      const tiltLabel = document.getElementById('hud-tilt');
+      if (data.tilt_warning) {
+        tiltLabel.innerText = 'TILT!';
+        tiltLabel.style.color = '#f00';
+      } else {
+        tiltLabel.innerText = 'OK';
+        tiltLabel.style.color = '#0f0';
+      }
+
       const usLeft  = document.getElementById('hud-us-left');
       const usRight = document.getElementById('hud-us-right');
       if (data.sensor_left !== undefined) {
