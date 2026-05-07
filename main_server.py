@@ -449,6 +449,13 @@ def control_chassis_sweep():
 
     return jsonify({"status": "error", "message": "Invalid grid size"}), 400
 
+@app.route('/cmd/chassis/stop_sweep', methods=['POST'])
+def stop_sweep():
+    global robot_status
+    robot_base.stop_sweep()
+    robot_status = "Idle"
+    return jsonify({"status": "stopped"})
+
 @app.route('/cmd/chassis/distance', methods=['POST'])
 def control_chassis_distance():
     data = request.json

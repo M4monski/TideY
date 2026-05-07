@@ -128,6 +128,11 @@ function sendSweep() {
   document.getElementById('distanceInput').value = '';
 }
 
+function stopSweep() {
+  fetch('/cmd/chassis/stop_sweep', { method: 'POST' })
+    .catch((err) => console.error('Error stopping sweep:', err));
+}
+
 // Auto-Align Logic
 let isTracking = false;
 function toggleTracking() {

@@ -51,6 +51,7 @@ class Chassis:
         self.is_dodging       = False
         self.original_heading = 0.0
         self._stop_watchdog   = False
+        self._stop_sweep      = False
 
         # Shared I2C Bus
         self.i2c = busio.I2C(board.SCL, board.SDA)
@@ -271,6 +272,9 @@ class Chassis:
 
         was_dodging = False
         while (time.time() - start_time) < travel_time:
+            if self._stop_sweep:
+                self.stop()
+                return
             # Freeze timer during obstacle dodge; only stop motors on the first tick
             if self.is_dodging:
                 if not was_dodging:
@@ -828,6 +832,12 @@ class Chassis:
         """Stop the ultrasonic sensor watchdog."""
         self._stop_watchdog = True
 
+    def stop_sweep(self):
+        """Signal the sweep loop to stop at the next safe exit point."""
+        self._stop_sweep = True
+        self.stop()
+        print("[SWEEP] Stop requested.")
+
     def sweep_area(self, grid_size_cm=None):
         rest_time = 0.5
 
@@ -841,6 +851,8 @@ class Chassis:
             lane_time = 600.0  # red tape boundary will always cut this short
             print(f"\n[SWEEP] Boundary mode: driving until red tape, U-turning indefinitely.")
 
+        self._stop_sweep = False
+
         current_heading = self.get_heading_smoothed(samples=10)
         if current_heading is None:
             current_heading = self.get_heading() or 0.0
@@ -851,10 +863,12 @@ class Chassis:
         uturn_count = 0
 
         for i in range(lanes):
+            if self._stop_sweep:
+                break
             print(f"[SWEEP] Lane {i + 1}/{lanes} | heading = {current_heading:.1f}°")
             self.drive_straight_for_time(lane_time, current_heading)
 
-            if i == lanes - 1:
+            if self._stop_sweep or i == lanes - 1:
                 break
 
             time.sleep(rest_time)
@@ -879,6 +893,9 @@ class Chassis:
 
             if self.vision:
                 self.vision.resume_tape_detection()
+
+            if self._stop_sweep:
+                break
 
             new_heading = self.get_heading_smoothed(samples=10)
             if new_heading is not None:

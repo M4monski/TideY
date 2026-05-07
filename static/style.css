@@ -293,7 +293,7 @@ html, body {
   grid-template-columns: 1fr 1fr 1fr;
   gap: 6px;
 }
-.dist-btn-group--full { grid-template-columns: 1fr; }
+.dist-btn-group--full { grid-template-columns: 1fr 1fr; }
 .dist-btn-group button { padding: 9px 4px; font-size: 10px; }
 .dist-btn-group .btn-sweep {
   background: rgba(0,210,211,0.12);
@@ -301,6 +301,8 @@ html, body {
   color: var(--cyan);
 }
 .dist-btn-group .btn-sweep:hover { background: rgba(0,210,211,0.22); }
+.dist-btn-group .btn-stop-sweep { background: rgba(255,59,59,0.12); border-color: #c0392b; color: #ff6b6b; }
+.dist-btn-group .btn-stop-sweep:hover { background: rgba(255,59,59,0.25); }
 
 /* ─── TARGET ACQUISITION ─────────────────────── */
 .btn-cam {
