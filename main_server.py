@@ -331,6 +331,7 @@ eyes = VisionSystem(config.get('vision', {}))
 robot_base.vision = eyes
 robot_base.arm    = robot_arm
 eyes.start_stream()
+robot_base.start_sensor_watchdog()
 threading.Thread(target=_weather_monitor_loop, daemon=True).start()
 
 # 3. Web Routes

@@ -231,6 +231,16 @@ function fetchTelemetry() {
       document.getElementById('hud-pitch').innerText = data.pitch;
       document.getElementById('hud-roll').innerText = data.roll;
 
+      const usLeft  = document.getElementById('hud-us-left');
+      const usRight = document.getElementById('hud-us-right');
+      if (data.sensor_left !== undefined) {
+        const threshold = 40; // cm — mirrors DIST_THRESH
+        usLeft.innerText  = `${data.sensor_left}cm`;
+        usRight.innerText = `${data.sensor_right}cm`;
+        usLeft.style.color  = data.sensor_left  < threshold ? '#f00' : '#0f0';
+        usRight.style.color = data.sensor_right < threshold ? '#f00' : '#0f0';
+      }
+
       // Change IMU status color based on health
       const imuLabel = document.getElementById('hud-imu');
       if (data.mpu_ok) {

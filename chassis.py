@@ -5,7 +5,7 @@ import os
 import threading
 import board
 import busio
-from gpiozero import Motor
+from gpiozero import Motor, DistanceSensor
 from digitalio import DigitalInOut, Direction, Pull
 from adafruit_bno08x import (
     BNO_REPORT_GAME_ROTATION_VECTOR,
@@ -15,7 +15,11 @@ from ina226 import INA226
 
 class Chassis:
     PITCH_OFFSET = 4.0
-    ROLL_OFFSET  = -7.0   
+    ROLL_OFFSET  = -7.0
+
+    DIST_THRESH          = 0.4    # metres — single-sensor dodge threshold
+    TRASH_DIST_THRESH    = 0.6    # metres — both sensors trigger 90° maneuver
+    DODGE_SECS_PER_METER = 1.5    # tune for actual robot speed during dodge segments
 
     def __init__(self, config):
         left_pins = config.get("left_pins", [13, 19])
@@ -35,8 +39,18 @@ class Chassis:
 
         self.vision = None
         self.arm    = None
-        
+
         print("[CHASSIS] Motors Initialized.")
+
+        # Ultrasonic sensors
+        self.sensor_right = DistanceSensor(echo=17, trigger=16)
+        self.sensor_left  = DistanceSensor(echo=22, trigger=27)
+        print("[CHASSIS] Ultrasonic sensors initialized.")
+
+        # Dodge state
+        self.is_dodging       = False
+        self.original_heading = 0.0
+        self._stop_watchdog   = False
 
         # Shared I2C Bus
         self.i2c = busio.I2C(board.SCL, board.SDA)
@@ -247,14 +261,25 @@ class Chassis:
             self.move_backward()
             time.sleep(travel_time)
             self.stop()
-            return 
-        
+            return
+
+        self.original_heading = target_heading
         MAX_HEADING_JUMP = 25.0
         last_heading = None
         jump_cooldown = 0
         start_time = time.time()
 
+        was_dodging = False
         while (time.time() - start_time) < travel_time:
+            # Freeze timer during obstacle dodge; only stop motors on the first tick
+            if self.is_dodging:
+                if not was_dodging:
+                    self.stop()
+                    was_dodging = True
+                start_time += 0.05
+                time.sleep(0.05)
+                continue
+            was_dodging = False
             # --- EMERGENCY PROTECTIONS ---
             if self.is_tilted_dangerously():
                 self.stop()
@@ -508,7 +533,9 @@ class Chassis:
             "pitch": f"{pitch}",
             "roll": f"{roll}",
             "mpu_ok": getattr(self, "has_imu", False),
-            "tilt_warning": self.is_tilted_dangerously()
+            "tilt_warning": self.is_tilted_dangerously(),
+            "sensor_left":  round(self.sensor_left.distance  * 100, 1),
+            "sensor_right": round(self.sensor_right.distance * 100, 1),
         }
 
         # Inject battery stats if INA226 is connected
@@ -688,6 +715,118 @@ class Chassis:
         if final is not None:
             print(f"[CHASSIS] U-turn complete. Final heading: {final:.1f}°")
         return final
+
+    # ---------------------------------------------------------
+    # OBSTACLE DODGE MANEUVERS
+    # ---------------------------------------------------------
+    def _turn_relative(self, angle):
+        """Pivot a relative number of degrees from the current heading."""
+        current = self.get_heading_smoothed(samples=5)
+        if current is None:
+            current = self.get_heading() or 0.0
+        self.turn_to_absolute_heading((current + angle) % 360)
+
+    def _dodge_forward_meters(self, meters, heading):
+        """Drive forward for an estimated distance (time-based, gyro-corrected)."""
+        secs  = meters * self.DODGE_SECS_PER_METER
+        start = time.time()
+        while time.time() - start < secs:
+            current = self.get_heading()
+            if current is None:
+                time.sleep(0.02)
+                continue
+            error      = (heading - current + 540) % 360 - 180
+            correction = error * 0.015
+            l_speed    = max(0.35, min(1.0, self.speed_left  - correction))
+            r_speed    = max(0.35, min(1.0, self.speed_right + correction))
+            self.motor_left.forward(l_speed)
+            self.motor_right.backward(r_speed)
+            time.sleep(0.02)
+        self.stop()
+
+    def perform_dodge(self, direction):
+        """Standard 45-degree dodge around an obstacle, then resume original heading."""
+        self.is_dodging = True
+        resume_heading  = self.original_heading
+        angle           = 45 if direction == 'left' else -45
+        print(f"\n[DODGE] {direction.upper()} dodge — returning to {resume_heading:.1f}°")
+
+        self._turn_relative(angle)
+        sidestep_hdg = self.get_heading_smoothed(samples=3) or (resume_heading + angle) % 360
+        self._dodge_forward_meters(2.0, sidestep_hdg)
+        self.turn_to_absolute_heading(resume_heading)
+        self._dodge_forward_meters(3.0, resume_heading)
+        self._turn_relative(-angle)
+        return_hdg = self.get_heading_smoothed(samples=3) or (resume_heading - angle + 360) % 360
+        self._dodge_forward_meters(2.0, return_hdg)
+        self.turn_to_absolute_heading(resume_heading)
+
+        self.is_dodging = False
+        print(f"[DODGE] Complete. Back on heading {resume_heading:.1f}°")
+
+    def perform_trash_maneuver(self, direction):
+        """Wide 90-degree dodge for large/close obstacles, then resume original heading."""
+        self.is_dodging = True
+        resume_heading  = self.original_heading
+        angle           = 90 if direction == 'left' else -90
+        print(f"\n[DODGE] 90° {direction.upper()} maneuver — returning to {resume_heading:.1f}°")
+
+        self._turn_relative(angle)
+        sidestep_hdg = self.get_heading_smoothed(samples=3) or (resume_heading + angle) % 360
+        self._dodge_forward_meters(3.0, sidestep_hdg)
+        self.turn_to_absolute_heading(resume_heading)
+        self._dodge_forward_meters(6.0, resume_heading)
+        self._turn_relative(-angle)
+        return_hdg = self.get_heading_smoothed(samples=3) or (resume_heading - angle + 360) % 360
+        self._dodge_forward_meters(3.0, return_hdg)
+        self.turn_to_absolute_heading(resume_heading)
+
+        self.is_dodging = False
+        print(f"[DODGE] 90° maneuver complete. Back on heading {resume_heading:.1f}°")
+
+    def sensor_watchdog(self):
+        """Ultrasonic obstacle avoidance — runs in a background thread."""
+        while not self._stop_watchdog:
+            if not self.is_dodging:
+                dl = self.sensor_left.distance
+                dr = self.sensor_right.distance
+
+                is_trash          = dl < self.TRASH_DIST_THRESH and dr < self.TRASH_DIST_THRESH
+                is_left_obstacle  = dl < self.DIST_THRESH
+                is_right_obstacle = dr < self.DIST_THRESH
+
+                if is_trash or is_left_obstacle or is_right_obstacle:
+                    t0 = time.time()
+                    print(f"\n[OBSTACLE] Left: {dl:.2f}m  Right: {dr:.2f}m")
+                    self.is_dodging = True   # freeze drive_straight_for_time immediately
+                    self.stop()
+                    time.sleep(0.1)
+
+                    if is_trash:
+                        print(f"[OBSTACLE] Both sensors — 90° maneuver. ({time.time()-t0:.3f}s)")
+                        self.motor_left.backward(self.base_speed)
+                        self.motor_right.forward(self.base_speed)
+                        time.sleep(0.7)
+                        self.stop()
+                        threading.Thread(target=self.perform_trash_maneuver, args=('right',), daemon=True).start()
+                    elif is_left_obstacle:
+                        print(f"[OBSTACLE] Left sensor — dodging right. ({time.time()-t0:.3f}s)")
+                        threading.Thread(target=self.perform_dodge, args=('right',), daemon=True).start()
+                    else:
+                        print(f"[OBSTACLE] Right sensor — dodging left. ({time.time()-t0:.3f}s)")
+                        threading.Thread(target=self.perform_dodge, args=('left',), daemon=True).start()
+
+            time.sleep(0.1)
+
+    def start_sensor_watchdog(self):
+        """Start the ultrasonic sensor watchdog in a background thread."""
+        self._stop_watchdog = False
+        threading.Thread(target=self.sensor_watchdog, daemon=True).start()
+        print("[CHASSIS] Sensor watchdog started.")
+
+    def stop_sensor_watchdog(self):
+        """Stop the ultrasonic sensor watchdog."""
+        self._stop_watchdog = True
 
     def sweep_area(self, grid_size_cm=None):
         rest_time = 0.5
