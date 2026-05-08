@@ -238,7 +238,7 @@ class Chassis:
         if not self.has_imu:
             return False
         pitch, roll = self._get_pitch_roll()
-        return abs(pitch - self.baseline_pitch) > 5 or abs(roll - self.baseline_roll) > 5
+        return abs(pitch - self.baseline_pitch) > 12.5 or abs(roll - self.baseline_roll) > 12.5
 
     # ---------------------------------------------------------
     # BASIC MOVEMENT
@@ -249,8 +249,8 @@ class Chassis:
 
     def move_approach(self):
         approach_factor = 0.65 
-        l_speed = max(0.35, self.speed_left * approach_factor)
-        r_speed = max(0.35, self.speed_right * approach_factor)
+        l_speed = max(0.40, self.speed_left * approach_factor)
+        r_speed = max(0.40, self.speed_right * approach_factor)
         self.motor_left.forward(l_speed)
         self.motor_right.backward(r_speed)
 
