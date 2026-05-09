@@ -22,7 +22,7 @@ class RoboticArm:
 
         self.tick_min = 150
         self.tick_max = 600
-        self.home_pos = config.get("home_pos", [20, 50, 90, 110, 237, 160])
+        self.home_pos = config.get("home_pos", [20, 50, 90, 110, 237, 170])
         self.pause_time = config.get("pause_between_joints", 0.5)
         
         self.current_pos = [0] * 6
@@ -93,7 +93,7 @@ class RoboticArm:
 
         if orientation == "horizontal":
             target_base     = 20
-            target_shoulder = 85
+            target_shoulder = 87
             target_elbow    = 50
             target_wpitch   = 180
             target_wroll    = 147
@@ -109,6 +109,8 @@ class RoboticArm:
         self.smooth_move("elbow", target_elbow)
         time.sleep(self.pause_time)
         self.smooth_move("wpitch", target_wpitch)
+        time.sleep(self.pause_time)
+        self.smooth_move("gripper", 140)
         time.sleep(self.pause_time)
         self.smooth_move("base", target_base)
         time.sleep(self.pause_time)
@@ -145,7 +147,7 @@ class RoboticArm:
         time.sleep(self.pause_time)
         
         # Open gripper to drop (leaves arm here, ready for the next command)
-        self.smooth_move("gripper", 140) 
+        self.smooth_move("gripper", 160) 
         time.sleep(self.pause_time)
     def return_sequence(self, drop_zone='c'):
         print(f"[ARM] Executing Return Sequence (Zone: {drop_zone})...")
@@ -170,7 +172,7 @@ class RoboticArm:
         time.sleep(self.pause_time)
         
         # 2. Open gripper to drop the trash
-        self.smooth_move("gripper", 140) 
+        self.smooth_move("gripper", 160) 
         time.sleep(self.pause_time)
 
         # 3. Retract fully back to Home to prepare for the next detection
@@ -247,7 +249,7 @@ class RoboticArm:
 
 if __name__ == "__main__":
     config = {
-        "home_pos": [20, 50, 90, 110, 237, 160],
+        "home_pos": [20, 50, 90, 110, 237, 170],
         "pause_between_joints": 0.5
     }
     arm = RoboticArm(config)

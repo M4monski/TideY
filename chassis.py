@@ -49,6 +49,7 @@ class Chassis:
 
         # Dodge state
         self.is_dodging       = False
+        self.is_picking_up    = False
         self.original_heading = 0.0
         self._stop_watchdog   = False
         self._stop_sweep      = False
@@ -238,7 +239,7 @@ class Chassis:
         if not self.has_imu:
             return False
         pitch, roll = self._get_pitch_roll()
-        return abs(pitch - self.baseline_pitch) > 12.5 or abs(roll - self.baseline_roll) > 12.5
+        return abs(pitch - self.baseline_pitch) > 5 or abs(roll - self.baseline_roll) > 5
 
     # ---------------------------------------------------------
     # BASIC MOVEMENT
@@ -407,6 +408,8 @@ class Chassis:
         if self.vision:
             self.vision.pause_tape_detection()
 
+        self.is_picking_up = True
+
         # Compute grab zone boundaries — identical to auto-align tracking_loop
         zh = self.vision.zone_cfg.get("height", 90) if self.vision else 90
         oy = self.vision.zone_cfg.get("offset_y", 0) if self.vision else 0
@@ -448,17 +451,17 @@ class Chassis:
             else:
                 green_height = ty_bottom - ty_top
 
-                # Inner center box of grab zone (middle 50% of its height)
+                # 30x30 square crosshair centered on the grab zone
                 gz_cy           = (red_top + red_bottom) / 2
-                gz_inner_top    = gz_cy - (zh * 0.25)
-                gz_inner_bottom = gz_cy + (zh * 0.25)
+                gz_inner_top    = gz_cy - 15
+                gz_inner_bottom = gz_cy + 15
 
-                # Inner center box of core hitbox (middle 50% of its height)
+                # 30x30 square crosshair centered on the core (trash) box
                 core_cy           = (ty_top + ty_bottom) / 2
-                core_inner_top    = core_cy - (green_height * 0.25)
-                core_inner_bottom = core_cy + (green_height * 0.25)
+                core_inner_top    = core_cy - 15
+                core_inner_bottom = core_cy + 15
 
-                # Pickup triggers when the two center boxes overlap
+                # Pickup triggers when the two 30x30 crosshair squares intersect
                 is_centered    = (core_inner_top <= gz_inner_bottom) and (core_inner_bottom >= gz_inner_top)
                 is_giant_trash = (green_height >= zh) and (ty_bottom >= red_bottom)
 
@@ -476,6 +479,7 @@ class Chassis:
 
         if not grabbed:
             print("[PICKUP] Timed out — trash never reached grab zone. Aborting.")
+            self.is_picking_up = False
             if self.vision:
                 self.vision.resume_tape_detection()
             return
@@ -520,6 +524,7 @@ class Chassis:
         print("[PICKUP] Snapping back to original sweep heading...")
         self.turn_to_absolute_heading(original_heading)
 
+        self.is_picking_up = False
         if self.vision:
             self.vision.resume_tape_detection()
 
@@ -851,12 +856,12 @@ class Chassis:
 
         self._turn_relative(angle)
         sidestep_hdg = self.get_heading_smoothed(samples=3) or (resume_heading + angle) % 360
-        self._dodge_forward_meters(1.0, sidestep_hdg)
+        self._dodge_forward_meters(3.0, sidestep_hdg)
         self.turn_to_absolute_heading(resume_heading)
         self._dodge_forward_meters(2.0, resume_heading)
         self._turn_relative(-angle)
         return_hdg = self.get_heading_smoothed(samples=3) or (resume_heading - angle + 360) % 360
-        self._dodge_forward_meters(1.0, return_hdg)
+        self._dodge_forward_meters(3.0, return_hdg)
         self.turn_to_absolute_heading(resume_heading)
 
         self.is_dodging = False
@@ -865,7 +870,7 @@ class Chassis:
     def sensor_watchdog(self):
         """Ultrasonic obstacle avoidance — runs in a background thread."""
         while not self._stop_watchdog:
-            if not self.is_dodging:
+            if not self.is_dodging and not self.is_picking_up:
                 dl = self.sensor_left.distance
                 dr = self.sensor_right.distance
 
