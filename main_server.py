@@ -22,8 +22,8 @@ robot_status = "Idle"
 BIN_VOLUME_FILE = "bin_volumes.json"
 BIN_VOLUME_INCREMENTS = {
     "general_plastic":  1,   # +1% per pickup
-    "plastic_bottles":  7,   # +7% per pickup
-    "glass_bottles":    8,   # +8% per pickup
+    "plastic_bottles":  10,   # +10% per pickup
+    "glass_bottles":    12,   # +12% per pickup
 }
 
 def _load_bin_volumes():
