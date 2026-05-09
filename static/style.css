@@ -38,6 +38,23 @@ html, body {
   overflow: hidden;
 }
 
+#stop-banner {
+  grid-column: 1 / -1;
+  background: rgba(255,71,87,.15);
+  border-bottom: 2px solid var(--red);
+  color: var(--red);
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 1px;
+  padding: 10px 20px;
+  text-align: center;
+  animation: blink-border 1s step-start infinite;
+}
+@keyframes blink-border {
+  50% { border-color: transparent; }
+}
+
 .header {
   grid-column: 1 / -1;
   display: flex;

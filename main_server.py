@@ -16,6 +16,7 @@ from vision import VisionSystem
 
 # --- GLOBAL STATUS ---
 robot_status = "Idle"
+stop_reason  = ""   # set when an auto-stop fires; cleared on next manual start
 # ---------------------
 
 # --- BIN VOLUME TRACKING ---
@@ -112,16 +113,33 @@ def _send_sms(message: str, sms_cfg: dict) -> bool:
         print(f"[NOTIFY] Request error: {e}")
         return False
 
+def _emergency_stop(reason: str):
+    """Halts sweep and auto-tracking immediately and records the stop reason."""
+    global tracking_active, robot_status, stop_reason
+    tracking_active = False
+    try:
+        robot_base.stop_sweep()
+        robot_base.stop()
+    except Exception:
+        pass
+    robot_status = f"STOPPED — {reason}"
+    stop_reason  = reason
+    print(f"[EMERGENCY STOP] {reason}")
+
 def _check_bin_alert(bin_name: str, current_pct: float):
-    """Fires an SMS alert if the bin crossed 90% and the cooldown has passed."""
+    """Fires an SMS alert if the bin crossed 90%, and emergency-stops at 100%."""
     global _sms_last_sent
+
+    if current_pct >= 100.0:
+        bin_label = "Plastic Bin (Left)" if bin_name == "plastic" else "Glass Bin (Right)"
+        _emergency_stop(f"{bin_label} is FULL — please empty it before resuming!")
 
     if current_pct < SMS_ALERT_THRESHOLD:
         return
 
     now = time.time()
     if (now - _sms_last_sent[bin_name]) < SMS_COOLDOWN_SECONDS:
-        return  # still within the 5-minute cooldown
+        return
 
     bin_label    = "Plastic Bin (Left)"  if bin_name == "plastic" else "Glass Bin (Right)"
     other_name   = "glass"               if bin_name == "plastic" else "plastic"
@@ -152,6 +170,7 @@ def _check_battery_alert(battery_pct: int, battery_voltage: float):
         key = "battery_crit"
         level = "CRITICAL"
         advice = "Stop the mission immediately and recharge TIDEY!"
+        _emergency_stop(f"Battery CRITICAL ({battery_pct}% / {battery_voltage:.2f}V) — recharge now!")
     elif battery_pct <= BATTERY_LOW_THRESHOLD:
         key = "battery_low"
         level = "LOW"
@@ -400,6 +419,7 @@ def get_status():
     global robot_status
     telemetry = robot_base.get_telemetry()
     telemetry["action"] = robot_status
+    telemetry["stop_reason"] = stop_reason
 
     if "battery_percent" in telemetry and "battery_voltage" in telemetry:
         _check_battery_alert(telemetry["battery_percent"], telemetry["battery_voltage"])
@@ -475,9 +495,11 @@ def manual_arm_move():
 
 @app.route('/cmd/chassis/sweep', methods=['POST'])
 def control_chassis_sweep():
+    global stop_reason
     data = request.json
     boundary_mode = data.get('boundary_mode', False)
     grid_size = float(data.get('distance', 0))
+    stop_reason = ""
 
     if boundary_mode:
         threading.Thread(target=robot_base.sweep_area).start()
@@ -700,8 +722,9 @@ def reset_bin_volumes():
 
 @app.route('/cmd/chassis/track/<state>', methods=['POST'])
 def set_tracking(state):
-    global tracking_active
+    global tracking_active, stop_reason
     if state == 'on' and not tracking_active:
+        stop_reason = ""
         tracking_active = True
         threading.Thread(target=tracking_loop, daemon=True).start()
     elif state == 'off':

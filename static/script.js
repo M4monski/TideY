@@ -280,6 +280,14 @@ function fetchTelemetry() {
         batteryLabel.innerText = 'N/A';
         batteryLabel.style.color = '#777';
       }
+      // --- EMERGENCY STOP BANNER ---
+      const banner = document.getElementById('stop-banner');
+      if (data.stop_reason) {
+        banner.innerText = '⛔ AUTO-STOPPED: ' + data.stop_reason;
+        banner.style.display = 'block';
+      } else {
+        banner.style.display = 'none';
+      }
     })
     .catch((err) => console.error('Telemetry error:', err));
 }
