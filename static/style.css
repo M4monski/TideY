@@ -372,6 +372,8 @@ html, body {
 .btn-grey:hover { background: var(--border2); }
 .btn-cyan { background: rgba(0,210,211,.1); border-color: rgba(0,210,211,.4); color: var(--cyan); }
 .btn-cyan:hover { background: rgba(0,210,211,.2); }
+.btn-red { background: rgba(255,71,87,.15); border-color: rgba(255,71,87,.5); color: var(--red); }
+.btn-red:hover { background: rgba(255,71,87,.3); }
 
 /* ─── ARM GRID ───────────────────────────────── */
 .arm-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }

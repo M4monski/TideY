@@ -348,6 +348,36 @@ function testSMS() {
     });
 }
 
+function testSMSCritical() {
+  const btn = document.getElementById('testSmsCritBtn');
+  const status = document.getElementById('testSmsStatus');
+  btn.disabled = true;
+  btn.innerText = '⏳ Sending…';
+  status.innerText = '';
+  fetch('/api/test_sms_critical', { method: 'POST' })
+    .then((r) => r.json())
+    .then((d) => {
+      if (d.status === 'sent') {
+        btn.innerText = '✅ Alerts Sent!';
+        status.innerText = `Sent ${d.sent_count} critical alert(s) — check your phone.`;
+        status.style.color = 'var(--green)';
+      } else {
+        btn.innerText = '❌ Send Failed';
+        status.innerText = 'Check PhilSMS token in config.json';
+        status.style.color = 'var(--red)';
+      }
+      setTimeout(() => {
+        btn.innerText = '🚨 Test Critical Alerts';
+        btn.disabled = false;
+        status.innerText = '';
+      }, 4000);
+    })
+    .catch(() => {
+      btn.innerText = '❌ Error';
+      btn.disabled = false;
+    });
+}
+
 fetchBinVolumes();
 setInterval(fetchBinVolumes, 3000);
 // ------------------

@@ -58,10 +58,12 @@ def record_bin_pickup(trash_class):
 # ---------------------------
 
 # --- SMS ALERT SYSTEM (PhilSMS) ---
-SMS_ALERT_THRESHOLD  = 90.0   # bin % that triggers a text
-SMS_COOLDOWN_SECONDS = 60     # max 1 message per minute per alert type
+SMS_ALERT_THRESHOLD   = 90.0   # bin % that triggers a text
+SMS_COOLDOWN_SECONDS  = 60     # max 1 message per minute per alert type
+BATTERY_LOW_THRESHOLD = 20     # battery % that triggers a low-battery SMS
+BATTERY_CRIT_THRESHOLD = 10    # battery % that triggers a critical SMS
 
-_sms_last_sent = {"plastic": 0.0, "glass": 0.0}  # epoch timestamps
+_sms_last_sent = {"plastic": 0.0, "glass": 0.0, "battery_low": 0.0, "battery_crit": 0.0}
 
 def _to_ph_intl(phone: str) -> str:
     """Converts 09xxxxxxxxx → 639xxxxxxxxx as required by PhilSMS."""
@@ -139,6 +141,40 @@ def _check_bin_alert(bin_name: str, current_pct: float):
 
     if _send_sms(message, sms_cfg):
         _sms_last_sent[bin_name] = now
+
+def _check_battery_alert(battery_pct: int, battery_voltage: float):
+    """Fires an SMS if battery hits low (20%) or critical (10%) thresholds."""
+    global _sms_last_sent
+
+    now = time.time()
+
+    if battery_pct <= BATTERY_CRIT_THRESHOLD:
+        key = "battery_crit"
+        level = "CRITICAL"
+        advice = "Stop the mission immediately and recharge TIDEY!"
+    elif battery_pct <= BATTERY_LOW_THRESHOLD:
+        key = "battery_low"
+        level = "LOW"
+        advice = "Please recharge TIDEY soon."
+    else:
+        return
+
+    if (now - _sms_last_sent[key]) < SMS_COOLDOWN_SECONDS:
+        return
+
+    message = (
+        f"[TIDEY ALERT] Battery {level}: {battery_pct}% ({battery_voltage:.2f}V)\n"
+        f"{advice}"
+    )
+
+    try:
+        with open('config.json', 'r') as f:
+            sms_cfg = json.load(f).get("sms", {})
+    except Exception:
+        sms_cfg = {}
+
+    if _send_sms(message, sms_cfg):
+        _sms_last_sent[key] = now
 # ------------------------
 
 # --- WEATHER & TIDE MONITOR ---
@@ -364,6 +400,10 @@ def get_status():
     global robot_status
     telemetry = robot_base.get_telemetry()
     telemetry["action"] = robot_status
+
+    if "battery_percent" in telemetry and "battery_voltage" in telemetry:
+        _check_battery_alert(telemetry["battery_percent"], telemetry["battery_voltage"])
+
     return jsonify(telemetry)
 
 @app.route('/capture', methods=['POST'])
@@ -591,6 +631,49 @@ def test_sms():
     )
     ok = _send_sms(msg, sms_cfg)
     return jsonify({"status": "sent" if ok else "failed"})
+
+@app.route('/api/test_sms_critical', methods=['POST'])
+def test_sms_critical():
+    """Sends a simulated critical-alert SMS for all alert types to verify they work."""
+    try:
+        with open('config.json', 'r') as f:
+            sms_cfg = json.load(f).get("sms", {})
+    except Exception:
+        sms_cfg = {}
+
+    telemetry = robot_base.get_telemetry()
+    batt_pct  = telemetry.get("battery_percent", 0)
+    batt_v    = telemetry.get("battery_voltage", 0.0)
+
+    messages = [
+        (
+            f"[TIDEY TEST - BIN ALERT]\n"
+            f"Plastic Bin (Left) is 92.0% full — please empty it soon!\n"
+            f"Glass Bin (Right) at {bin_volumes['glass']:.1f}%."
+        ),
+        (
+            f"[TIDEY TEST - BIN ALERT]\n"
+            f"Glass Bin (Right) is 91.0% full — please empty it soon!\n"
+            f"Plastic Bin (Left) at {bin_volumes['plastic']:.1f}%."
+        ),
+        (
+            f"[TIDEY TEST - BATTERY ALERT]\n"
+            f"Battery LOW: {batt_pct}% ({batt_v:.2f}V)\n"
+            f"Please recharge TIDEY soon."
+        ),
+        (
+            f"[TIDEY TEST - BATTERY ALERT]\n"
+            f"Battery CRITICAL: {batt_pct}% ({batt_v:.2f}V)\n"
+            f"Stop the mission immediately and recharge TIDEY!"
+        ),
+    ]
+
+    results = []
+    for msg in messages:
+        results.append(_send_sms(msg, sms_cfg))
+
+    ok = any(results)
+    return jsonify({"status": "sent" if ok else "failed", "sent_count": sum(results)})
 
 @app.route('/api/weather', methods=['GET'])
 def get_weather():
