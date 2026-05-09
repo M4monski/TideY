@@ -115,6 +115,9 @@ class Chassis:
 
             self.ina = INA226(busnum=1, max_expected_amps=8, shunt_ohms=0.01, address=0x40)
             self.ina.configure()
+            self.ina_voltage_offset = 2.92  # measured: 13.4V actual - 10.48V INA226 reading
+            self._voltage_samples = []       # rolling window for smoothing
+            self._voltage_peak = None        # highest smoothed reading seen (idle baseline)
             self.has_ina = True
             print("[CHASSIS] INA226 Battery Monitor Initialized on GPIO6.")
         except Exception as e:
@@ -574,8 +577,20 @@ class Chassis:
         # Inject battery stats if INA226 is connected
         if getattr(self, "has_ina", False):
             try:
-                voltage = self.ina.voltage()
-                
+                raw = self.ina.voltage() + self.ina_voltage_offset
+
+                # Rolling 5-sample average to dampen motor switching noise
+                self._voltage_samples.append(raw)
+                if len(self._voltage_samples) > 5:
+                    self._voltage_samples.pop(0)
+                smoothed = sum(self._voltage_samples) / len(self._voltage_samples)
+
+                # One-way clamp: voltage can only stay flat or decrease.
+                # Motor inductive kickback causes false upward spikes — ignore them.
+                if self._voltage_peak is None or smoothed < self._voltage_peak:
+                    self._voltage_peak = smoothed
+                voltage = self._voltage_peak
+
                 telemetry["battery_voltage"] = round(voltage, 2)
                 telemetry["battery_percent"] = self.get_battery_percentage(voltage)
                 telemetry["battery_alert"] = not self.bat_alert.value
