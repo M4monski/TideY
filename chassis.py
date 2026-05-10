@@ -17,8 +17,8 @@ class Chassis:
     PITCH_OFFSET = 4.0
     ROLL_OFFSET  = -7.0
 
-    DIST_THRESH          = 0.4    # metres — single-sensor dodge threshold
-    TRASH_DIST_THRESH    = 0.6    # metres — both sensors trigger 90° maneuver
+    DIST_THRESH          = 0.01    # metres — single-sensor dodge threshold should be 0.4
+    TRASH_DIST_THRESH    = 0.01    # metres — both sensors trigger 90° maneuver should be 0.6
     DODGE_SECS_PER_METER = 1.5    # tune for actual robot speed during dodge segments
 
     def __init__(self, config):
@@ -37,8 +37,9 @@ class Chassis:
         self.speed_left = self.base_speed * self.left_trim
         self.speed_right = self.base_speed * self.right_trim
 
-        self.vision = None
-        self.arm    = None
+        self.vision    = None
+        self.arm       = None
+        self.on_pickup = None  # callback set by server to record bin volumes
 
         print("[CHASSIS] Motors Initialized.")
 
@@ -53,6 +54,8 @@ class Chassis:
         self.original_heading = 0.0
         self._stop_watchdog   = False
         self._stop_sweep      = False
+        self.is_resting       = False
+        self._skip_rest       = False
 
         # Tilt baseline (set after IMU warmup)
         self.baseline_pitch = 0.0
@@ -531,6 +534,9 @@ class Chassis:
         if self.vision:
             self.vision.resume_tape_detection()
 
+        if self.on_pickup:
+            self.on_pickup(trash_type)
+
         t_done = time.time()
         print(f"[PICKUP] {time.strftime('%H:%M:%S')} | --- SEQUENCE COMPLETE (total: {t_done - t_start:.2f}s) ---\n")
 
@@ -572,6 +578,7 @@ class Chassis:
             "tilt_warning": self.is_tilted_dangerously(),
             "sensor_left":  round(self.sensor_left.distance  * 100, 1),
             "sensor_right": round(self.sensor_right.distance * 100, 1),
+            "is_resting": self.is_resting,
         }
 
         # Inject battery stats if INA226 is connected
@@ -936,6 +943,12 @@ class Chassis:
         self.stop()
         print("[SWEEP] Stop requested.")
 
+    def skip_rest(self):
+        """Skip the current rest period and continue with the return sweep."""
+        if self.is_resting:
+            self._skip_rest = True
+            print("[SWEEP] Rest skipped by operator — continuing sweep.")
+
     def sweep_area(self, grid_size_cm=None):
         rest_time = 0.5
 
@@ -978,12 +991,33 @@ class Chassis:
             # Every 8th U-turn is a re-entry: repeat the previous direction instead of alternating.
             # This is achieved by NOT flipping after the 7th turn, so the 8th inherits the same value.
             # Used to be 8 == 0
-            is_reentry = (uturn_count % 6 == 0)
+            # Main was 6 == 0
+            is_reentry = (uturn_count % 3 == 0)
             suffix = " [RE-ENTRY — repeating last direction]" if is_reentry else ""
             print(f"[SWEEP] U-turn #{uturn_count} — 180° {label} arc{suffix}")
 
             if self.vision:
                 self.vision.pause_tape_detection()
+
+            if is_reentry:
+                REST_SECONDS = 600  # 10-minute rest before re-entry return sweep
+                print(f"\n[SWEEP] RE-ENTRY REST — resting {REST_SECONDS // 60} minutes before return sweep...")
+                self.stop()
+                self.is_resting = True
+                self._skip_rest = False
+                rest_start = time.time()
+                while time.time() - rest_start < REST_SECONDS:
+                    if self._stop_sweep or self._skip_rest:
+                        break
+                    elapsed = int(time.time() - rest_start)
+                    if elapsed > 0 and elapsed % 60 == 0:
+                        remaining = REST_SECONDS - elapsed
+                        print(f"[SWEEP] Rest: {remaining // 60}m {remaining % 60}s remaining...")
+                    time.sleep(1)
+                self.is_resting = False
+                self._skip_rest = False
+                if not self._stop_sweep:
+                    print("[SWEEP] Rest complete — proceeding with return sweep.\n")
 
             self.arc_turn_to_heading((current_heading + turn_deg) % 360, turn_deg)
 
@@ -1005,7 +1039,8 @@ class Chassis:
             time.sleep(0.3)
             # Skip the flip after the 7th turn so the 8th (re-entry) repeats the same direction.
             # Used to be 8 != 7
-            if uturn_count % 6 != 5:
+            # Main value is 6 != 5
+            if uturn_count % 3 != 2:
                 use_right_turn = not use_right_turn
 
         print("[SWEEP] --- SWEEP COMPLETE ---\n")

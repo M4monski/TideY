@@ -133,6 +133,11 @@ function stopSweep() {
     .catch((err) => console.error('Error stopping sweep:', err));
 }
 
+function skipRest() {
+  fetch('/cmd/chassis/skip_rest', { method: 'POST' })
+    .catch((err) => console.error('Error skipping rest:', err));
+}
+
 // Auto-Align Logic
 let isTracking = false;
 function toggleTracking() {
@@ -287,6 +292,12 @@ function fetchTelemetry() {
         banner.style.display = 'block';
       } else {
         banner.style.display = 'none';
+      }
+
+      // --- SKIP REST BUTTON ---
+      const skipRestBtn = document.getElementById('btn-skip-rest');
+      if (skipRestBtn) {
+        skipRestBtn.style.display = data.is_resting ? 'block' : 'none';
       }
     })
     .catch((err) => console.error('Telemetry error:', err));

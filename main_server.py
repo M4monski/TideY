@@ -402,8 +402,9 @@ robot_base = Chassis(config.get('chassis', {}))
 robot_arm = RoboticArm(config.get('arm', {}))
 
 eyes = VisionSystem(config.get('vision', {}))
-robot_base.vision = eyes
-robot_base.arm    = robot_arm
+robot_base.vision    = eyes
+robot_base.arm       = robot_arm
+robot_base.on_pickup = record_bin_pickup
 eyes.start_stream()
 robot_base.start_sensor_watchdog()
 threading.Thread(target=_weather_monitor_loop, daemon=True).start()
@@ -568,6 +569,12 @@ def stop_sweep():
     robot_base.stop_sweep()
     robot_status = "Idle"
     return jsonify({"status": "stopped"})
+
+@app.route('/cmd/chassis/skip_rest', methods=['POST'])
+@login_required
+def skip_rest():
+    robot_base.skip_rest()
+    return jsonify({"status": "ok"})
 
 @app.route('/cmd/chassis/distance', methods=['POST'])
 @login_required
