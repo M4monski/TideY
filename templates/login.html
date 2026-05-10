@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <title>TIDEY — Login</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background: #0a0c10;
+      color: #e0e6f0;
+      font-family: 'Rajdhani', sans-serif;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .login-card {
+      background: #12151c;
+      border: 1px solid #1e2433;
+      border-radius: 10px;
+      padding: 2.5rem 2rem;
+      width: 100%;
+      max-width: 360px;
+      box-shadow: 0 8px 40px rgba(0,0,0,0.6);
+    }
+
+    .brand {
+      text-align: center;
+      margin-bottom: 2rem;
+    }
+
+    .brand-title {
+      font-size: 2rem;
+      font-weight: 700;
+      letter-spacing: 0.12em;
+      color: #e0e6f0;
+    }
+
+    .brand-title span {
+      color: #00bfff;
+    }
+
+    .brand-sub {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.7rem;
+      color: #4a5568;
+      letter-spacing: 0.2em;
+      margin-top: 0.3rem;
+    }
+
+    .field {
+      margin-bottom: 1.1rem;
+    }
+
+    .field label {
+      display: block;
+      font-size: 0.75rem;
+      font-weight: 600;
+      letter-spacing: 0.12em;
+      color: #8899aa;
+      margin-bottom: 0.4rem;
+    }
+
+    .field input {
+      width: 100%;
+      background: #0a0c10;
+      border: 1px solid #1e2433;
+      border-radius: 5px;
+      color: #e0e6f0;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.9rem;
+      padding: 0.6rem 0.8rem;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+
+    .field input:focus {
+      border-color: #00bfff;
+    }
+
+    .error-msg {
+      background: rgba(220, 53, 69, 0.15);
+      border: 1px solid rgba(220, 53, 69, 0.4);
+      border-radius: 5px;
+      color: #ff6b7a;
+      font-size: 0.8rem;
+      letter-spacing: 0.05em;
+      padding: 0.5rem 0.8rem;
+      margin-bottom: 1.1rem;
+      text-align: center;
+    }
+
+    .btn-login {
+      width: 100%;
+      background: #00bfff;
+      border: none;
+      border-radius: 5px;
+      color: #0a0c10;
+      cursor: pointer;
+      font-family: 'Rajdhani', sans-serif;
+      font-size: 1rem;
+      font-weight: 700;
+      letter-spacing: 0.15em;
+      padding: 0.7rem;
+      margin-top: 0.4rem;
+      transition: background 0.2s;
+    }
+
+    .btn-login:hover {
+      background: #33ccff;
+    }
+
+    .footer-note {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.65rem;
+      color: #2a3344;
+      text-align: center;
+      margin-top: 1.5rem;
+      letter-spacing: 0.1em;
+    }
+  </style>
+</head>
+<body>
+  <div class="login-card">
+    <div class="brand">
+      <div class="brand-title">TIDEY <span>CC</span></div>
+      <div class="brand-sub">COMMAND CENTER ACCESS</div>
+    </div>
+
+    {% if error %}
+    <div class="error-msg">{{ error }}</div>
+    {% endif %}
+
+    <form method="POST" action="/login">
+      <div class="field">
+        <label>USERNAME</label>
+        <input type="text" name="username" autocomplete="username" autofocus required />
+      </div>
+      <div class="field">
+        <label>PASSWORD</label>
+        <input type="password" name="password" autocomplete="current-password" required />
+      </div>
+      <button type="submit" class="btn-login">AUTHENTICATE</button>
+    </form>
+  </div>
+  <div class="footer-note">TIDEY ROBOT SYSTEM &mdash; AUTHORIZED ACCESS ONLY</div>
+</body>
+</html>

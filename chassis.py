@@ -242,7 +242,7 @@ class Chassis:
         if not self.has_imu:
             return False
         pitch, roll = self._get_pitch_roll()
-        return abs(pitch - self.baseline_pitch) > 5 or abs(roll - self.baseline_roll) > 5
+        return abs(pitch - self.baseline_pitch) > 10 or abs(roll - self.baseline_roll) > 10
 
     # ---------------------------------------------------------
     # BASIC MOVEMENT
@@ -977,7 +977,8 @@ class Chassis:
 
             # Every 8th U-turn is a re-entry: repeat the previous direction instead of alternating.
             # This is achieved by NOT flipping after the 7th turn, so the 8th inherits the same value.
-            is_reentry = (uturn_count % 8 == 0)
+            # Used to be 8 == 0
+            is_reentry = (uturn_count % 6 == 0)
             suffix = " [RE-ENTRY — repeating last direction]" if is_reentry else ""
             print(f"[SWEEP] U-turn #{uturn_count} — 180° {label} arc{suffix}")
 
@@ -1003,7 +1004,8 @@ class Chassis:
 
             time.sleep(0.3)
             # Skip the flip after the 7th turn so the 8th (re-entry) repeats the same direction.
-            if uturn_count % 8 != 7:
+            # Used to be 8 != 7
+            if uturn_count % 6 != 5:
                 use_right_turn = not use_right_turn
 
         print("[SWEEP] --- SWEEP COMPLETE ---\n")

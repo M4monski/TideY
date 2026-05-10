@@ -4,10 +4,13 @@ import os
 import time
 import threading
 import json
+import uuid
 import requests as http_requests
 from datetime import datetime, timezone, timedelta
+from functools import wraps
 from flask import jsonify
-from flask import Flask, render_template, Response, send_from_directory, jsonify, request
+from flask import Flask, render_template, Response, send_from_directory, jsonify, request, session, redirect, url_for
+from werkzeug.security import check_password_hash
 
 # Import your clean hardware and AI classes
 from chassis import Chassis
@@ -378,6 +381,22 @@ except FileNotFoundError:
     print("ERROR: config.json not found! Using default empty dictionaries.")
     config = {}
 
+# --- AUTH ---
+app.secret_key = config.get('auth', {}).get('secret_key', os.urandom(32))
+app.config['SESSION_COOKIE_HTTPONLY'] = True
+app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
+
+active_session_id = None  # only one valid session at a time
+
+def login_required(f):
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        if session.get('sid') != active_session_id or active_session_id is None:
+            return redirect(url_for('login_page'))
+        return f(*args, **kwargs)
+    return decorated
+# ------------
+
 # 2. Initialize Subsystems
 robot_base = Chassis(config.get('chassis', {}))
 robot_arm = RoboticArm(config.get('arm', {}))
@@ -390,13 +409,35 @@ robot_base.start_sensor_watchdog()
 threading.Thread(target=_weather_monitor_loop, daemon=True).start()
 
 # 3. Web Routes
+@app.route('/login', methods=['GET', 'POST'])
+def login_page():
+    error = None
+    if request.method == 'POST':
+        global active_session_id
+        auth_cfg = config.get('auth', {})
+        username = request.form.get('username', '')
+        password = request.form.get('password', '')
+        if username == auth_cfg.get('username') and check_password_hash(auth_cfg.get('password_hash', ''), password):
+            active_session_id = str(uuid.uuid4())
+            session['sid'] = active_session_id
+            return redirect(url_for('index'))
+        error = 'Invalid username or password.'
+    return render_template('login.html', error=error)
+
+@app.route('/logout', methods=['POST'])
+def logout():
+    global active_session_id
+    active_session_id = None
+    session.clear()
+    return redirect(url_for('login_page'))
+
 @app.route('/')
+@login_required
 def index():
-    # Pass the live configuration dictionary to the HTML template
-    return render_template('index.html', 
-                           grab_zone=eyes.zone_cfg, 
+    return render_template('index.html',
+                           grab_zone=eyes.zone_cfg,
                            response_zone=eyes.response_cfg,
-                           rt_left=eyes.rt_left,             # <--- UPDATED: Pass all 4 sides
+                           rt_left=eyes.rt_left,
                            rt_right=eyes.rt_right,
                            rt_top=eyes.rt_top,
                            rt_bottom=eyes.rt_bottom,
@@ -410,10 +451,12 @@ def video_feed_generator():
                    b'Content-Type: image/jpeg\r\n\r\n' + frame + b'\r\n')
 
 @app.route('/video_feed')
+@login_required
 def video_feed():
     return Response(video_feed_generator(), mimetype='multipart/x-mixed-replace; boundary=frame')
 
 @app.route('/api/status', methods=['GET'])
+@login_required
 def get_status():
     """Sends the latest chassis data and text status to the webpage."""
     global robot_status
@@ -427,6 +470,7 @@ def get_status():
     return jsonify(telemetry)
 
 @app.route('/capture', methods=['POST'])
+@login_required
 def capture():
     filename = f"photo_{int(time.time())}.jpg"
     filepath = os.path.join(IMAGE_DIR, filename)
@@ -437,10 +481,12 @@ def capture():
     return jsonify({"success": True, "filename": filename})
 
 @app.route('/images/<filename>')
+@login_required
 def serve_image(filename):
     return send_from_directory(IMAGE_DIR, filename)
 
 @app.route('/cmd/chassis/<direction>', methods=['POST'])
+@login_required
 def control_chassis(direction):
     if direction == 'w': robot_base.move_forward()
     elif direction == 's': robot_base.move_backward()
@@ -450,6 +496,7 @@ def control_chassis(direction):
     return jsonify({"status": "ok", "action": direction})   
 
 @app.route('/cmd/arm/<action>', methods=['POST'])
+@login_required
 def control_arm(action):
     # We run the arm in a background thread so the camera stream doesn't freeze!
     if action == 'pickup_v':
@@ -467,6 +514,7 @@ def control_arm(action):
     return jsonify({"status": "ok", "action": action})
 
 @app.route('/api/arm/angles', methods=['GET'])
+@login_required
 def get_arm_angles():
     # Map the list of current positions to their readable names
     angles = {
@@ -480,6 +528,7 @@ def get_arm_angles():
     return jsonify(angles)
 
 @app.route('/cmd/arm/move', methods=['POST'])
+@login_required
 def manual_arm_move():
     # Receive the joint name and angle from the web UI
     data = request.json
@@ -494,6 +543,7 @@ def manual_arm_move():
     return jsonify({"status": "error", "message": "Invalid data"}), 400
 
 @app.route('/cmd/chassis/sweep', methods=['POST'])
+@login_required
 def control_chassis_sweep():
     global stop_reason
     data = request.json
@@ -512,6 +562,7 @@ def control_chassis_sweep():
     return jsonify({"status": "error", "message": "Invalid grid size"}), 400
 
 @app.route('/cmd/chassis/stop_sweep', methods=['POST'])
+@login_required
 def stop_sweep():
     global robot_status
     robot_base.stop_sweep()
@@ -519,6 +570,7 @@ def stop_sweep():
     return jsonify({"status": "stopped"})
 
 @app.route('/cmd/chassis/distance', methods=['POST'])
+@login_required
 def control_chassis_distance():
     data = request.json
     distance = float(data.get('distance', 0))
@@ -534,6 +586,7 @@ def control_chassis_distance():
 # --- NEW: ROUTE FOR RECTANGULAR ZONE SLIDERS ---
 # --- UPDATED: ROUTE FOR RECTANGULAR ZONE SLIDERS ---
 @app.route('/cmd/vision/red_tape_limit', methods=['POST'])
+@login_required
 def update_red_tape_limit():
     data = request.json
     
@@ -570,6 +623,7 @@ def update_red_tape_limit():
     return jsonify({"status": "success"})
 
 @app.route('/cmd/vision/response_zone', methods=['POST'])
+@login_required
 def update_response_zone():
     data = request.json
     
@@ -606,6 +660,7 @@ def update_response_zone():
 
 
 @app.route('/cmd/vision/grab_zone', methods=['POST'])
+@login_required
 def update_grab_zone():
     data = request.json
     
@@ -641,6 +696,7 @@ def update_grab_zone():
     return jsonify({"status": "updated", "config": eyes.zone_cfg})
 
 @app.route('/api/test_sms', methods=['POST'])
+@login_required
 def test_sms():
     try:
         with open('config.json', 'r') as f:
@@ -655,6 +711,7 @@ def test_sms():
     return jsonify({"status": "sent" if ok else "failed"})
 
 @app.route('/api/test_sms_critical', methods=['POST'])
+@login_required
 def test_sms_critical():
     """Sends a simulated critical-alert SMS for all alert types to verify they work."""
     try:
@@ -698,14 +755,17 @@ def test_sms_critical():
     return jsonify({"status": "sent" if ok else "failed", "sent_count": sum(results)})
 
 @app.route('/api/weather', methods=['GET'])
+@login_required
 def get_weather():
     return jsonify(live_weather)
 
 @app.route('/api/bin_volumes', methods=['GET'])
+@login_required
 def get_bin_volumes():
     return jsonify(bin_volumes)
 
 @app.route('/api/bin_volumes/reset', methods=['POST'])
+@login_required
 def reset_bin_volumes():
     data = request.json or {}
     target = data.get('bin', 'all')
@@ -721,6 +781,7 @@ def reset_bin_volumes():
     return jsonify({"status": "ok", "bin_volumes": bin_volumes})
 
 @app.route('/cmd/chassis/track/<state>', methods=['POST'])
+@login_required
 def set_tracking(state):
     global tracking_active, stop_reason
     if state == 'on' and not tracking_active:
